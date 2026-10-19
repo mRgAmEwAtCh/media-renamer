@@ -1,0 +1,12 @@
+.env
+*.env
+!.env.example
+secrets/
+node_modules/
+.DS_Store
+config/
+
+# Never commit SSH keys or certificates
+id_*
+*.pem
+*.key

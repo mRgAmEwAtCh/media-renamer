@@ -1,0 +1,53 @@
+# Media Renamer for openmediavault (compose plugin) or plain `docker compose`.
+# Values come from .env next to this file, or from the OMV compose "Environment" field.
+services:
+  media-renamer:
+    build: .
+    image: media-renamer:latest
+    container_name: media-renamer
+    # Stable hostname: lets a restarted or recreated container recognise its own stale job lock.
+    hostname: media-renamer
+    restart: unless-stopped
+    init: true
+    # A running move may finish its current file on `docker stop` (see MEDIA_RENAMER_SHUTDOWN_GRACE).
+    stop_grace_period: 10m
+    user: "${PUID:-1000}:${PGID:-100}"
+    ports:
+      - "${MEDIA_RENAMER_PORT:-4173}:4173"
+    environment:
+      # The web UI may only browse, rename and move inside these container folders.
+      MEDIA_RENAMER_ROOTS: /media,/library
+      # Default destinations per kind (empty = rename in place). The web UI's
+      # "Save as default" overrides these and the patterns below; it saves to /config.
+      MEDIA_RENAMER_TV_TARGET: ${MEDIA_RENAMER_TV_TARGET:-}
+      MEDIA_RENAMER_MOVIE_TARGET: ${MEDIA_RENAMER_MOVIE_TARGET:-}
+      MEDIA_RENAMER_EPISODE_PATTERN: ${MEDIA_RENAMER_EPISODE_PATTERN:-}
+      MEDIA_RENAMER_MOVIE_PATTERN: ${MEDIA_RENAMER_MOVIE_PATTERN:-}
+      # File filters (UI defaults; CLI flags override): video files only, keep/skip samples.
+      MEDIA_RENAMER_VIDEO_ONLY: ${MEDIA_RENAMER_VIDEO_ONLY:-false}
+      MEDIA_RENAMER_INCLUDE_SAMPLES: ${MEDIA_RENAMER_INCLUDE_SAMPLES:-false}
+      # Metadata language (e.g. de-DE) and movie release region (e.g. DE).
+      MEDIA_RENAMER_LANGUAGE: ${MEDIA_RENAMER_LANGUAGE:-en-US}
+      MEDIA_RENAMER_REGION: ${MEDIA_RENAMER_REGION:-}
+      # Seconds the current file may take to finish on stop; keep below stop_grace_period.
+      MEDIA_RENAMER_SHUTDOWN_GRACE: 570
+      MEDIA_RENAMER_ALLOWED_HOSTS: ${MEDIA_RENAMER_ALLOWED_HOSTS:-}
+      MEDIA_RENAMER_PASSWORD: ${MEDIA_RENAMER_PASSWORD:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      UMASK: ${UMASK:-002}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      # Incoming files to rename (e.g. your downloads share).
+      - ${MEDIA_PATH:?Set MEDIA_PATH to your incoming media shared folder}:/media
+      # Where renamed files can be moved (e.g. your library share). Defaults to MEDIA_PATH.
+      - ${LIBRARY_PATH:-${MEDIA_PATH}}:/library
+      # Saved settings. Create the folder first (mkdir -p config) so it belongs to PUID.
+      - ./config:/config
+    # Hardening: the app only needs to read its code and write to the mounted folders.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

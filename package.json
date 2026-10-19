@@ -1,0 +1,18 @@
+{
+  "name": "media-renamer",
+  "version": "0.1.0",
+  "description": "Local web app and CLI that renames movie and TV episode files using public metadata.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "media-renamer": "bin/media-renamer.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

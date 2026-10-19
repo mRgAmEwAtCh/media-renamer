@@ -1,0 +1,15 @@
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+!.env.example
+*.env
+secrets/
+node_modules
+test
+Dockerfile
+compose.yaml
+*.md
+.DS_Store
+config/

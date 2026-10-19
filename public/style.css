@@ -38,7 +38,9 @@ body > header h1 img { flex: none; }
 body > header p, .hint { color: var(--muted); margin: 0 0 1rem; }
 
 .panel {
-  background: var(--panel);
+  background:
+    radial-gradient(120% 480px at 0% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 75%),
+    var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1rem 1.25rem;
@@ -117,7 +119,7 @@ fieldset.automation .checkbox { padding-bottom: 0; color: var(--text); }
 select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; }
 
 .activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
-.activity-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; }
+.activity-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); }
 .activity-item.state-running, .activity-item.state-cancelling { border-color: var(--accent); }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .activity-head button { margin-left: auto; }
@@ -229,6 +231,7 @@ dialog[aria-busy='true'] .folders { opacity: 0.5; }
     border-radius: 8px;
     padding: 0.7rem;
     margin-bottom: 0.6rem;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%);
   }
   tbody td { padding: 0; border: none; }
   tbody td:empty { display: none; }

@@ -267,6 +267,22 @@ describe('web server on a NAS', () => {
     assert.equal((await request('/')).status, 200);
   });
 
+  test('app icons and the manifest load without a password; other files still need it', async () => {
+    for (const [pathname, type] of [
+      ['/icon.svg', 'image/svg+xml'],
+      ['/apple-touch-icon.png', 'image/png'],
+      ['/icon-512.png', 'image/png'],
+      ['/manifest.webmanifest', 'application/manifest+json'],
+    ]) {
+      const response = await request(pathname, { password: null });
+      assert.equal(response.status, 200, pathname);
+      assert.ok(response.headers['content-type'].startsWith(type), pathname);
+    }
+    assert.equal((await request('/app.js', { password: null })).status, 401);
+    assert.equal((await request('/style.css', { password: null })).status, 401);
+    assert.equal(JSON.parse((await request('/manifest.webmanifest', { password: null })).text).name, 'Media Renamer');
+  });
+
   test('rejects unknown Host headers (DNS rebinding)', async () => {
     assert.equal((await request('/', { host: 'evil.example' })).status, 421);
     assert.equal((await request('/', { host: 'nas.local:8080' })).status, 200);

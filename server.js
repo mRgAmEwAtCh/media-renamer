@@ -39,6 +39,12 @@ const STATIC_FILES = {
   '/activity.js': ['activity.js', 'text/javascript; charset=utf-8'],
   '/text.js': ['text.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/icon.svg': ['icon.svg', 'image/svg+xml', { public: true }],
+  '/icon-192.png': ['icon-192.png', 'image/png', { public: true }],
+  '/icon-512.png': ['icon-512.png', 'image/png', { public: true }],
+  '/icon-maskable-512.png': ['icon-maskable-512.png', 'image/png', { public: true }],
+  '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png', { public: true }],
+  '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json; charset=utf-8', { public: true }],
 };
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const SECURITY_HEADERS = {
@@ -53,6 +59,11 @@ const forbidden = (message) => Object.assign(new InputError(message), { status: 
 function send(response, status, body, contentType = 'application/json; charset=utf-8', headers = {}) {
   response.writeHead(status, { ...SECURITY_HEADERS, ...headers, 'Content-Type': contentType });
   response.end(contentType.startsWith('application/json') ? JSON.stringify(body) : body);
+}
+
+async function serveStatic(response, pathname) {
+  const [file, type] = STATIC_FILES[pathname];
+  return send(response, 200, await fs.readFile(path.join(PUBLIC_DIR, file)), type);
 }
 
 async function readRaw(request) {
@@ -370,16 +381,15 @@ export function createServer(config, { jobs = new JobManager(), createMetadata =
       }
     }
     if (config.password && !authorized(request, config.password)) {
+      // Phones fetch home-screen icons and the manifest without the password.
+      if (request.method === 'GET' && STATIC_FILES[pathname]?.[2]?.public) return serveStatic(response, pathname);
       return send(response, 401, { error: 'Authentication required' }, undefined, {
         'WWW-Authenticate': 'Basic realm="Media Renamer", charset="UTF-8"',
       });
     }
 
     try {
-      if (request.method === 'GET' && STATIC_FILES[pathname]) {
-        const [file, type] = STATIC_FILES[pathname];
-        return send(response, 200, await fs.readFile(path.join(PUBLIC_DIR, file), 'utf8'), type);
-      }
+      if (request.method === 'GET' && STATIC_FILES[pathname]) return await serveStatic(response, pathname);
       if (request.method === 'POST' && Object.hasOwn(routes, pathname)) {
         return send(response, 200, await routes[pathname](await readJson(request)));
       }

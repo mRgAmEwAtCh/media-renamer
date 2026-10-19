@@ -1,6 +1,6 @@
 # Media Renamer
 
-Rename movie and TV episode files from public metadata and optionally move them into a library folder. It has a web app and a pipeline-friendly CLI, which share the same core in `lib/`. It runs locally or in Docker, for example on an openmediavault NAS.
+Rename movie and TV episode files from public metadata and optionally move them into a library folder. It has a web app and a pipeline-friendly CLI, which share the same core in `lib/`. A downloader can also trigger an automatic import (with an optional Dolby Digital Plus audio fix) through an HTTP hook. It runs locally or in Docker, for example on an openmediavault NAS.
 
 - **TV episodes** are matched on [TVmaze](https://www.tvmaze.com/api) (no key needed).
 - **Movies** are matched on [TMDB](https://developer.themoviedb.org/) with an API key from the server configuration. Without a key, movies keep the name and year parsed from the file name and are marked as warnings.
@@ -55,7 +55,18 @@ All settings come from the environment, a `.env` file next to the app, or the fi
 | `MEDIA_RENAMER_TARGET` | — | Default destination for both kinds when the two variables above are not set. CLI: `--target`. |
 | `MEDIA_RENAMER_EPISODE_PATTERN` | `{n} - {s00e00} - {t}` | Default episode pattern. CLI: `--episode-pattern`. |
 | `MEDIA_RENAMER_MOVIE_PATTERN` | `{n} ({y})` | Default movie pattern. CLI: `--movie-pattern`. |
-| `MEDIA_RENAMER_CONFIG_DIR` | per-user config folder (`/config` in Docker) | Where saved settings (`settings.json`) are kept. |
+| `MEDIA_RENAMER_CONFIG_DIR` | per-user config folder (`/config` in Docker) | Where saved settings (`settings.json`) and the job history (`jobs.json`) are kept. |
+| `MEDIA_RENAMER_HOOK_TOKEN` / `_FILE` | — | Enables the automatic import hook; callers send it as a Bearer token. Use at least 20 random characters. |
+| `MEDIA_RENAMER_PATH_MAP` | — | Translates paths sent to the hook, e.g. `/Downloads=/media/Downloads`. Comma-separated for several. |
+| `MEDIA_RENAMER_STABLE_SECONDS` | `10` | How long files must stop changing before an import starts. |
+| `MEDIA_RENAMER_AUTO_IMPORT` | `true` | Whether the hook imports at all. |
+| `MEDIA_RENAMER_AUTO_INCLUDE_WARNINGS` | `false` | Also import files without a confident match. |
+| `MEDIA_RENAMER_CLEANUP_EMPTY_FOLDERS` | `false` | Remove extraction folders left empty after an import. |
+| `MEDIA_RENAMER_AUDIO_FIX` | `false` | Add a Dolby Digital Plus track to DTS-only movies during imports. |
+| `MEDIA_RENAMER_AUDIO_FIX_EPISODES` | `false` | Do the same for TV episodes. |
+| `MEDIA_RENAMER_AUDIO_LANGUAGES` | metadata language (e.g. `de`) | Comma-separated languages whose audio is checked. |
+| `MEDIA_RENAMER_AUDIO_BITRATE` | `1024k` | Bitrate of the added 5.1 track (192k–1536k; stereo uses 256k). |
+| `MEDIA_RENAMER_FFMPEG` / `MEDIA_RENAMER_FFPROBE` | from `PATH` | ffmpeg and ffprobe to use (included in the Docker image). |
 | `MEDIA_RENAMER_VIDEO_ONLY` | `false` | Only process video files (skip subtitles) by default. CLI: `--video-only` / `--all-types`. |
 | `MEDIA_RENAMER_INCLUDE_SAMPLES` | `false` | Keep release samples by default instead of skipping them. CLI: `--include-samples`. |
 | `MEDIA_RENAMER_LANGUAGE` | `en-US` | Metadata language for TMDB, e.g. `de-DE`. CLI: `--language`; the web UI pre-fills it. |
@@ -72,7 +83,7 @@ The server warns at startup when it listens on the network without a password, a
 
 ### Saved settings
 
-The web UI's **Save as default** stores the naming patterns, the TV and movie destinations, the move switch, language, region and filters in `settings.json` in `MEDIA_RENAMER_CONFIG_DIR`. These are used by the web UI on every device and by the CLI. **Reset to server defaults** deletes the file.
+The web UI's **Save as default** stores the naming patterns, the TV and movie destinations, the move switch, language, region, filters and the automatic-import options in `settings.json` in `MEDIA_RENAMER_CONFIG_DIR`. These are used by the web UI on every device, by automatic imports and by the CLI. **Reset to server defaults** deletes the file.
 
 Precedence, lowest to highest: built-in defaults → environment variables → saved settings → per-run choices (web UI fields before previewing, CLI flags). `media-renamer settings` prints the result. In Docker, `./config` is mounted at `/config`; create it before the first start (`mkdir -p config`) so it belongs to `PUID`, otherwise saving fails with a clear error.
 
@@ -97,6 +108,49 @@ When the destination is on another disk (common with mergerfs pools whose shares
 - **TV shows** also use TMDB when a key is configured, which gives localized series and episode titles. If TMDB only has a placeholder episode name such as "Folge 3", the English title is used. Shows TMDB doesn't know fall back to TVmaze.
 - **Without a TMDB key**, TV titles come from TVmaze, which is English only, and movies keep their parsed names.
 - `{on}` inserts the original title, e.g. `{n} [{on}] ({y})` → `Der Pate [The Godfather] (1972)`.
+
+## Automatic import from a downloader
+
+A downloader can hand finished downloads to Media Renamer, which then imports them on its own:
+
+```bash
+curl -fsS -X POST http://127.0.0.1:4173/api/hooks/extracted \
+  -H "Authorization: Bearer $MEDIA_RENAMER_HOOK_TOKEN" \
+  --data-urlencode "ARCHIVE_PATH=/Downloads/extracted/Some.Movie.2024"
+```
+
+The hook accepts a folder or a file, as the `ARCHIVE_PATH` form field or as JSON `{"path": "…"}`, and answers `202` with the job straight away. It is enabled by `MEDIA_RENAMER_HOOK_TOKEN` and needs only that token, not the web password. It can only import inside `MEDIA_RENAMER_ROOTS`. If the downloader sees the files under different paths, `MEDIA_RENAMER_PATH_MAP` translates them (for JDownloader: `/Downloads=/media/Downloads`).
+
+**JDownloader** (Event Scripter, trigger *Archive extraction finished*):
+
+```js
+var path = archive.getExtractToFolder();
+callAsync(function () {}, 'curl', '-fsS', '-X', 'POST', '-H', 'Authorization: Bearer YOUR_TOKEN',
+  '--data-urlencode', 'ARCHIVE_PATH=' + path, 'http://127.0.0.1:4173/api/hooks/extracted');
+```
+
+Each import runs these steps, all shown live in the web UI's **Activity** panel:
+
+1. **Wait** until the files stop changing (`MEDIA_RENAMER_STABLE_SECONDS`).
+2. **Scan** with the saved filters (video only, skip samples).
+3. **Look up metadata** with the saved patterns, language and TV/movie destinations.
+4. **Decide.** Only confident matches (status `ok`) are imported. Everything else stays where it is and is listed as *Needs review*, with a button that opens the folder in the renamer.
+5. **Check audio** (optional, `.mkv` only).
+6. **Convert and move** with the normal engine: journalled, undoable, with progress and **Cancel**.
+7. **Clean up** extraction folders left empty (optional).
+
+Imports run one at a time, after any rename already running. A second call for a folder that is already waiting joins that job. The queue and the history are saved in `jobs.json`: an import waiting or running when the server stops runs again after the restart. Imports can be undone with **Undo last batch** on the allowed folder that contains them (e.g. `/media/Downloads`).
+
+### Audio fix: Dolby Digital Plus next to DTS
+
+Many TVs, soundbars and apps cannot play DTS. When the audio fix is on, every imported movie (and, optionally, episode) is checked with ffprobe. For each configured language that has a DTS track but no Dolby track (AC3, E-AC-3 or TrueHD), an **E-AC-3 (Dolby Digital Plus) 5.1** track is added in that language, labelled *converted from DTS*.
+
+- All original tracks, including the DTS track, are copied unchanged; only the new track is encoded.
+- ffmpeg writes straight into a hidden partial file in the destination. The file gets its final name only after the result has been checked (track count, codec, duration), and only then is the download copy deleted. A failed or cancelled conversion leaves the original untouched.
+- 7.1 sources are downmixed to 5.1 for the new track, because ffmpeg's E-AC-3 encoder supports at most 5.1.
+- Dolby Atmos cannot be created with open-source tools; existing Atmos tracks (TrueHD or E-AC-3) are kept as they are.
+
+The options are in the web UI under **Automatic import** (saved with **Save as default**), or set by the `MEDIA_RENAMER_AUDIO_*` variables.
 
 ## Web app
 
@@ -132,6 +186,7 @@ media-renamer --help
 | `apply <dir> --plan <file\|->` | Apply a plan produced by `preview --format json\|jsonl` |
 | `undo <dir>` | Reverse the last batch, including moves |
 | `settings` | Show the effective defaults and where `settings.json` is |
+| `import <dir>` | Run the automatic import on a folder (`--audio-fix`, `--no-audio-fix`, `--cleanup`, `--wait <s>`, `--dry-run`) |
 | `pick [--start <dir>]` | Open the system folder dialog and print the chosen path |
 | `serve [--port n]` | Start the web app |
 

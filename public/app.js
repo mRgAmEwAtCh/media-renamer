@@ -1,3 +1,4 @@
+import { startActivity } from './activity.js';
 import { createFolderPicker } from './picker.js';
 
 const $ = (id) => document.getElementById(id);
@@ -57,6 +58,17 @@ function formSettings() {
     language: $('language').value.trim(),
     region: $('region').value.trim().toUpperCase() || null,
     filters: { videoOnly: $('videoOnly').checked, excludeSamples: $('excludeSamples').checked },
+    automation: {
+      enabled: $('autoEnabled').checked,
+      includeWarnings: $('autoWarnings').checked,
+      cleanupEmptyFolders: $('autoCleanup').checked,
+      audioFix: {
+        enabled: $('audioFixEnabled').checked,
+        episodes: $('audioFixEpisodes').checked,
+        languages: $('audioLanguages').value.split(',').map((code) => code.trim().toLowerCase()).filter(Boolean),
+        bitrate: $('audioBitrate').value,
+      },
+    },
   };
 }
 
@@ -70,6 +82,17 @@ function applySettings(settings) {
   $('region').value = settings.region ?? '';
   $('videoOnly').checked = settings.filters.videoOnly;
   $('excludeSamples').checked = settings.filters.excludeSamples;
+  const automation = settings.automation;
+  $('autoEnabled').checked = automation.enabled;
+  $('autoWarnings').checked = automation.includeWarnings;
+  $('autoCleanup').checked = automation.cleanupEmptyFolders;
+  $('audioFixEnabled').checked = automation.audioFix.enabled;
+  $('audioFixEpisodes').checked = automation.audioFix.episodes;
+  $('audioLanguages').value = automation.audioFix.languages.join(', ');
+  if (![...$('audioBitrate').options].some((option) => option.value === automation.audioFix.bitrate)) {
+    $('audioBitrate').append(new Option(automation.audioFix.bitrate, automation.audioFix.bitrate));
+  }
+  $('audioBitrate').value = automation.audioFix.bitrate;
   syncTargetFields();
 }
 
@@ -107,6 +130,14 @@ async function loadServerSettings() {
     $('tmdbStatus').textContent = response.tmdbConfigured
       ? 'Movie lookups (TMDB): enabled by the server configuration.'
       : 'Movie lookups (TMDB): disabled. Set TMDB_API_KEY in the server configuration to enable them.';
+    $('hookStatus').textContent = [
+      response.hookEnabled
+        ? 'The import hook is enabled (POST /api/hooks/extracted).'
+        : 'The import hook is disabled. Set MEDIA_RENAMER_HOOK_TOKEN on the server to enable it.',
+      response.audioToolsAvailable ? '' : 'ffmpeg is not installed, so audio tracks cannot be added.',
+    ]
+      .filter(Boolean)
+      .join(' ');
     if (response.problems?.length) setStatus(`Saved settings problem: ${response.problems.join('; ')}`, 'error');
     adoptLegacyBrowserSettings(response.saved);
   } catch (error) {
@@ -378,8 +409,13 @@ const listTargets = (targets) => (targets?.length ? targets.join(' and ') : '');
 function showJob(job) {
   const p = job.progress;
   const moving = job.kind === 'apply' ? (job.targets?.length ? 'Moving' : 'Renaming') : 'Undoing';
-  $('jobTitle').textContent = job.state === 'cancelling' ? 'Cancelling…' : `${moving} files…`;
-  $('jobCancel').disabled = job.state !== 'running';
+  $('jobTitle').textContent =
+    job.state === 'cancelling'
+      ? 'Cancelling…'
+      : job.state === 'queued'
+        ? `Waiting for another job to finish${job.queuePosition ? ` (position ${job.queuePosition})` : ''}…`
+        : `${moving} files…`;
+  $('jobCancel').disabled = !['running', 'queued'].includes(job.state);
 
   const doneBytes = p.bytesDone + (p.current?.bytesDone ?? 0);
   const now = Date.now();
@@ -433,7 +469,7 @@ async function followJob(job) {
   setStatus('');
   updateButtons();
   showJob(job);
-  while (job.state === 'running' || job.state === 'cancelling') {
+  while (['queued', 'running', 'cancelling'].includes(job.state)) {
     await sleep(700);
     try {
       const latest = (await api('/api/job', { id: job.id })).job;
@@ -451,6 +487,7 @@ async function followJob(job) {
   if (job.result || job.state === 'failed') reportJob(job);
   else setStatus('The server restarted during the job. Completed moves are in the undo log.', 'error');
   if (state.root) await rescan().catch(() => {});
+  activity.refresh();
   updateButtons();
 }
 
@@ -486,10 +523,11 @@ async function cancelJob() {
   }
 }
 
+/** Re-attach the progress panel to a rename/undo started from this UI; imports show in Activity. */
 async function resumeRunningJob() {
   try {
     const { job } = await api('/api/job', {});
-    if (job && (job.state === 'running' || job.state === 'cancelling')) {
+    if (job && job.source === 'web UI' && ['queued', 'running', 'cancelling'].includes(job.state)) {
       state.root = job.root;
       await followJob(job);
     }
@@ -497,6 +535,17 @@ async function resumeRunningJob() {
     // No job information available; nothing to resume.
   }
 }
+
+const activity = startActivity({
+  api,
+  onOpenFolder: (folder) => {
+    $('root').value = folder;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scan();
+  },
+  // An import may have moved files out of the folder shown in the table.
+  onChange: () => state.root && !state.busy && rescan().catch(() => {}),
+});
 
 /* ---------- Wiring ---------- */
 
@@ -525,8 +574,11 @@ $('moveEnabled').addEventListener('change', () => {
   syncTargetFields();
   updateButtons();
 });
-for (const id of ['tvTarget', 'movieTarget', 'episodePattern', 'moviePattern', 'language', 'region']) {
+for (const id of ['tvTarget', 'movieTarget', 'episodePattern', 'moviePattern', 'language', 'region', 'audioLanguages']) {
   $(id).addEventListener('input', updateButtons);
+}
+for (const id of ['autoEnabled', 'autoWarnings', 'autoCleanup', 'audioFixEnabled', 'audioFixEpisodes', 'audioBitrate']) {
+  $(id).addEventListener('change', updateButtons);
 }
 for (const id of ['videoOnly', 'excludeSamples']) {
   $(id).addEventListener('change', () => {

@@ -109,6 +109,39 @@ code { font-size: 0.85em; }
 footer.credits { max-width: 1200px; margin: 0 auto; padding: 0 1.25rem 1.5rem; color: var(--muted); font-size: 0.8rem; }
 footer.credits a { color: inherit; }
 
+fieldset.automation { margin-bottom: 0.75rem; }
+fieldset.automation .checkbox { padding-bottom: 0; color: var(--text); }
+select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; }
+
+.activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.activity-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; }
+.activity-item.state-running, .activity-item.state-cancelling { border-color: var(--accent); }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.activity-head button { margin-left: auto; }
+.activity-summary { margin: 0.3rem 0; }
+.activity-progress progress { width: 100%; accent-color: var(--accent); }
+.activity-progress p { margin: 0.2rem 0; }
+.badge { font-size: 0.75rem; padding: 0.05rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.badge-running, .badge-cancelling { color: var(--accent); border-color: var(--accent); }
+.badge-finished { color: var(--ok); border-color: var(--ok); }
+.badge-failed, .badge-interrupted { color: var(--bad); border-color: var(--bad); }
+.badge-queued { color: var(--warn); border-color: var(--warn); }
+.steps { list-style: none; margin: 0.3rem 0; padding: 0; font-size: 0.85rem; display: grid; gap: 0.1rem; }
+.step-icon { display: inline-block; width: 1.3rem; }
+.step-pending, .step-skipped { color: var(--muted); }
+.step-running .step-icon { color: var(--accent); }
+.step-done .step-icon { color: var(--ok); }
+.step-failed, .step-stopped { color: var(--bad); }
+.step-detail { color: var(--muted); }
+.activity-files summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.activity-files ul { list-style: none; margin: 0.3rem 0; padding: 0; display: grid; gap: 0.35rem; font-size: 0.85rem; }
+.activity-files li { display: grid; gap: 0.05rem; }
+.activity-files .outcome { font-weight: 600; }
+.outcome-moved .outcome, .outcome-converted .outcome { color: var(--ok); }
+.outcome-review .outcome { color: var(--warn); }
+.outcome-failed .outcome { color: var(--bad); }
+button.link { border: none; background: none; color: var(--accent); padding: 0.2rem 0; text-align: left; }
+
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
 .field > label { font-size: 0.85rem; color: var(--muted); }
 .input-group { display: flex; gap: 0.5rem; }

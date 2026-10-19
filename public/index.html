@@ -65,6 +65,29 @@
             <input id="region" type="text" list="regions" placeholder="e.g. DE" maxlength="2" spellcheck="false" autocomplete="off" />
           </label>
         </div>
+        <fieldset class="kind automation">
+          <legend>Automatic import</legend>
+          <p id="hookStatus" class="hint"></p>
+          <label class="checkbox"><input id="autoEnabled" type="checkbox" /> Import automatically when the downloader calls the hook</label>
+          <label class="checkbox"><input id="autoWarnings" type="checkbox" /> Also import files without a confident match (otherwise they wait for review)</label>
+          <label class="checkbox"><input id="autoCleanup" type="checkbox" /> Remove extraction folders that are left empty</label>
+          <label class="checkbox"><input id="audioFixEnabled" type="checkbox" /> Add a Dolby Digital Plus (E-AC-3) track to movies that only have DTS</label>
+          <label class="checkbox"><input id="audioFixEpisodes" type="checkbox" /> Also for TV episodes</label>
+          <div class="grid">
+            <label>Audio languages
+              <input id="audioLanguages" type="text" placeholder="e.g. de or de,en" spellcheck="false" autocomplete="off" />
+            </label>
+            <label>Bitrate of the added track
+              <select id="audioBitrate">
+                <option value="640k">640 kbit/s</option>
+                <option value="768k">768 kbit/s</option>
+                <option value="1024k">1024 kbit/s</option>
+                <option value="1536k">1536 kbit/s</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint">The original DTS track is always kept. Atmos cannot be created with open-source tools, so the new track is 5.1.</p>
+        </fieldset>
         <datalist id="languages">
           <option value="de-DE">Deutsch</option>
           <option value="en-US">English (US)</option>
@@ -117,6 +140,12 @@
         <p id="jobCurrent" class="path job-current"></p>
         <progress id="jobFile" max="1" value="0" aria-label="Current file"></progress>
         <p id="jobNote" class="hint">This runs on the server. You can close this page; reopen it to see the progress.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="activity-heading">
+        <h2 id="activity-heading">Activity</h2>
+        <p id="activityEmpty" class="hint">No jobs yet. Renames you start here and imports started by the downloader appear in this list.</p>
+        <ul id="activityList" class="activity"></ul>
       </section>
 
       <section class="panel" aria-labelledby="files-heading">

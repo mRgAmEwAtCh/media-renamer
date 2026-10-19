@@ -10,6 +10,9 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# ffmpeg/ffprobe for the optional audio fix (adds E-AC-3 tracks next to DTS tracks).
+RUN apk add --no-cache ffmpeg
+
 # No npm dependencies: copy only the application. Secrets (.env) are excluded by .dockerignore.
 COPY package.json server.js ./
 COPY bin ./bin

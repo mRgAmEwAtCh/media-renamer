@@ -385,19 +385,24 @@ describe('web server on a NAS', () => {
     assert.equal((await post('/api/job/cancel', { id: 'nope' })).status, 404);
   });
 
-  test('refuses a second job while one is running', async () => {
+  test('queues a second job behind a running one and can cancel it before it starts', async () => {
     let release;
     const blocker = new Promise((resolve) => {
       release = resolve;
     });
     const first = server.jobs.start({ kind: 'apply', root: media, run: () => blocker });
     const second = await post('/api/undo', { root: media });
-    assert.equal(second.status, 409);
-    assert.match(second.json.error, /already running/);
+    assert.equal(second.status, 200, second.text);
+    assert.equal(second.json.state, 'queued');
+    assert.equal(second.json.queuePosition, 1);
+    const cancelledQueued = await post('/api/job/cancel', { id: second.json.id });
+    assert.equal(cancelledQueued.json.job.state, 'cancelled');
     const cancelled = await post('/api/job/cancel', { id: first.id });
     assert.equal(cancelled.json.job.state, 'cancelling');
     release({ cancelled: true });
     await server.jobs.shutdown({ graceMs: 0 }).catch(() => {});
     server.jobs.shuttingDown = false;
+    const list = (await post('/api/jobs', {})).json.jobs;
+    assert.deepEqual(list.slice(0, 2).map((job) => job.state), ['cancelled', 'cancelled']);
   });
 });

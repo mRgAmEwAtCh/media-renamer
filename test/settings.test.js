@@ -107,5 +107,5 @@ test('CLI rejects target flags on commands that do not move files', async () => 
   const dir = await tempDir('mr-dl-');
   const result = await runCli(['scan', dir, '--tv-target', dir]);
   assert.equal(result.code, 2);
-  assert.match(result.stderr, /--tv-target is only used by preview and apply/);
+  assert.match(result.stderr, /--tv-target is only used by preview, apply and import/);
 });

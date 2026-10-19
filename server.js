@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { listDirectory, listPlaces } from './lib/browse.js';
-import { hostnameOf, loadConfig, loadEnvFile } from './lib/config.js';
+import { hostnameOf, loadConfig, loadEnvFile, mapPath } from './lib/config.js';
+import { audioToolsAvailable } from './lib/audio.js';
+import { runImport } from './lib/importer.js';
 import { JobManager } from './lib/jobs.js';
 import { MetadataClient, normalizeLanguage, normalizeRegion } from './lib/metadata.js';
 import { nativeDialogAvailable, pickFolderNative } from './lib/native-dialog.js';
@@ -34,6 +36,7 @@ const STATIC_FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/picker.js': ['picker.js', 'text/javascript; charset=utf-8'],
+  '/activity.js': ['activity.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
 };
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -51,10 +54,7 @@ function send(response, status, body, contentType = 'application/json; charset=u
   response.end(contentType.startsWith('application/json') ? JSON.stringify(body) : body);
 }
 
-async function readJson(request) {
-  if (!String(request.headers['content-type'] ?? '').startsWith('application/json')) {
-    throw Object.assign(new InputError('Content-Type must be application/json'), { status: 415 });
-  }
+async function readRaw(request) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
@@ -62,11 +62,26 @@ async function readJson(request) {
     if (size > MAX_BODY_BYTES) throw Object.assign(new InputError('Request body too large'), { status: 413 });
     chunks.push(chunk);
   }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function readJson(request) {
+  if (!String(request.headers['content-type'] ?? '').startsWith('application/json')) {
+    throw Object.assign(new InputError('Content-Type must be application/json'), { status: 415 });
+  }
+  const text = await readRaw(request);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    return JSON.parse(text || '{}');
   } catch {
     throw new InputError('Request body is not valid JSON');
   }
+}
+
+/** JSON, or a form post such as `curl --data-urlencode "ARCHIVE_PATH=…"`. */
+async function readJsonOrForm(request) {
+  const type = String(request.headers['content-type'] ?? '');
+  if (type.startsWith('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(await readRaw(request)));
+  return readJson(request);
 }
 
 const digest = (value) => createHash('sha256').update(value, 'utf8').digest();
@@ -104,7 +119,7 @@ function createRootPolicy(roots) {
   };
 }
 
-function createRoutes(config, jobs) {
+function createRoutes(config, jobs, { createMetadata }) {
   const policy = createRootPolicy(config.roots);
   const currentSettings = async () => {
     const saved = await readSavedSettings(config.settingsFile);
@@ -146,7 +161,7 @@ function createRoutes(config, jobs) {
     };
   };
 
-  return {
+  const routes = {
     async '/api/places'() {
       const places = policy.restricted
         ? (await policy.realRoots()).map((root) => ({ label: path.basename(root) || root, path: root, kind: 'volume' }))
@@ -163,6 +178,8 @@ function createRoutes(config, jobs) {
         savedAt: saved.savedAt,
         problems: saved.problems,
         tmdbConfigured: Boolean(config.tmdbKey),
+        hookEnabled: Boolean(config.hookToken),
+        audioToolsAvailable: await audioToolsAvailable(config.audioTools),
       };
     },
     async '/api/settings/save'(body) {
@@ -214,7 +231,7 @@ function createRoutes(config, jobs) {
         throw new InputError(error.message);
       }
       const patterns = { ...effective.patterns, ...body.patterns };
-      const metadata = new MetadataClient({ tmdbKey: config.tmdbKey, language, region });
+      const metadata = createMetadata({ tmdbKey: config.tmdbKey, language, region });
       const items = await buildPreview({ root, targets, files: body.files, patterns, filters: filtersFrom(body, effective), metadata });
       return { root, targets, language, region, patterns, items };
     },
@@ -238,6 +255,7 @@ function createRoutes(config, jobs) {
         kind: 'apply',
         root,
         targets,
+        label: `Rename ${renames.length} file(s)`,
         run: (control) => applyRenames(root, renames, { owner: 'web UI', ...control }),
       });
     },
@@ -246,21 +264,89 @@ function createRoutes(config, jobs) {
       return jobs.start({
         kind: 'undo',
         root,
+        label: 'Undo last batch',
         run: (control) => undoLast(root, { checkTarget: (target) => policy.check(target), owner: 'web UI', ...control }),
       });
     },
     async '/api/job'(body) {
       return { job: jobs.get(typeof body.id === 'string' ? body.id : null) };
     },
+    async '/api/jobs'() {
+      return { jobs: jobs.list() };
+    },
     async '/api/job/cancel'(body) {
       if (typeof body.id !== 'string') throw new InputError('Job id required');
       return { job: jobs.cancel(body.id) };
     },
   };
+
+  /** Runs one automatic import with the settings that apply when it starts. */
+  const importRunner = (root, target) => async (control) => {
+    await policy.check(target);
+    const { effective } = await currentSettings();
+    const metadata = createMetadata({ tmdbKey: config.tmdbKey, language: effective.language, region: effective.region });
+    return runImport({
+      root,
+      target,
+      settings: effective,
+      metadata,
+      audioTools: config.audioTools,
+      stableSeconds: config.stableSeconds,
+      control,
+      owner: 'automatic import',
+    });
+  };
+
+  /** POST /api/hooks/extracted: queue an import for a folder or file a downloader just finished. */
+  async function hook(request) {
+    if (!config.hookToken) {
+      throw Object.assign(new InputError('The import hook is switched off; set MEDIA_RENAMER_HOOK_TOKEN'), { status: 404 });
+    }
+    const header = String(request.headers.authorization ?? '');
+    const token = header.match(/^Bearer\s+(\S+)\s*$/i)?.[1] ?? request.headers['x-hook-token'];
+    if (!token || !timingSafeEqual(digest(String(token)), digest(config.hookToken))) {
+      throw Object.assign(new InputError('Missing or wrong hook token'), { status: 401 });
+    }
+    const body = await readJsonOrForm(request);
+    const requested = String(body.path ?? body.ARCHIVE_PATH ?? '').trim();
+    if (!requested) throw new InputError('Send the folder or file as "path" (JSON) or ARCHIVE_PATH (form field)');
+    const { effective } = await currentSettings();
+    if (!effective.automation.enabled) throw Object.assign(new InputError('Automatic import is switched off in the settings'), { status: 409 });
+
+    const mapped = mapPath(requested, config.pathMap);
+    const located = await policy.check(mapped).catch((error) => {
+      if (error.status === 403) throw error;
+      throw Object.assign(new InputError(`Not found: ${mapped}${mapped === requested ? '' : ` (sent as ${requested})`}`), { status: 404 });
+    });
+    const stat = await fs.stat(located.real);
+    const root = located.root ?? (stat.isDirectory() ? located.real : path.dirname(located.real));
+    const existing = jobs.findActive((job) => job.kind === 'import' && job.params?.path === located.real);
+    if (existing) return { ...existing, duplicate: true };
+    return jobs.start({
+      kind: 'import',
+      root,
+      params: { path: located.real, requested },
+      label: path.basename(located.real),
+      source: 'hook',
+      run: importRunner(root, located.real),
+    });
+  }
+
+  /** Re-create the runner for an import that was queued or interrupted before a restart. */
+  const resume = (job) => (job.kind === 'import' && job.params?.path ? importRunner(job.root, job.params.path) : null);
+
+  return { routes, hook, resume };
 }
 
-export function createServer(config, { jobs = new JobManager() } = {}) {
-  const routes = createRoutes(config, jobs);
+export function createServer(config, { jobs = new JobManager(), createMetadata = (options) => new MetadataClient(options) } = {}) {
+  const { routes, hook, resume } = createRoutes(config, jobs, { createMetadata });
+  jobs.resume ??= resume;
+
+  const fail = (response, error) => {
+    const status = error.status ?? (error instanceof InputError ? 400 : 500);
+    if (status === 500) console.error(error);
+    return send(response, status, { error: error.message });
+  };
 
   const server = http.createServer(async (request, response) => {
     // Reject unknown Host headers so web pages cannot reach this API via DNS rebinding.
@@ -270,6 +356,15 @@ export function createServer(config, { jobs = new JobManager() } = {}) {
     const { pathname } = new URL(request.url, 'http://localhost');
 
     if (pathname === '/healthz' && request.method === 'GET') return send(response, 200, { ok: true });
+    // The hook has its own token so a downloader can call it without the web password.
+    if (pathname === '/api/hooks/extracted') {
+      if (request.method !== 'POST') return send(response, 405, { error: 'Use POST' }, undefined, { Allow: 'POST' });
+      try {
+        return send(response, 202, await hook(request));
+      } catch (error) {
+        return fail(response, error);
+      }
+    }
     if (config.password && !authorized(request, config.password)) {
       return send(response, 401, { error: 'Authentication required' }, undefined, {
         'WWW-Authenticate': 'Basic realm="Media Renamer", charset="UTF-8"',
@@ -286,9 +381,7 @@ export function createServer(config, { jobs = new JobManager() } = {}) {
       }
       return send(response, 404, { error: 'Not found' });
     } catch (error) {
-      const status = error.status ?? (error instanceof InputError ? 400 : 500);
-      if (status === 500) console.error(error);
-      return send(response, status, { error: error.message });
+      return fail(response, error);
     }
   });
   server.jobs = jobs;
@@ -302,7 +395,7 @@ export function startServer(overrides = {}) {
   for (const warning of config.warnings) process.stderr.write(`warning: ${warning}\n`);
 
   return new Promise((resolve, reject) => {
-    const server = createServer(config);
+    const server = createServer(config, { jobs: new JobManager({ storeFile: config.jobsFile }) });
     server.once('error', reject);
     server.listen(config.port, config.host, () => {
       const { port } = server.address();
@@ -310,6 +403,10 @@ export function startServer(overrides = {}) {
       process.stderr.write(`Media Renamer running at http://${shown}:${port}/\n`);
       if (config.roots.length) process.stderr.write(`Allowed folders: ${config.roots.join(', ')}\n`);
       process.stderr.write(`Movie lookups (TMDB): ${config.tmdbKey ? 'enabled' : 'disabled, set TMDB_API_KEY'}\n`);
+      process.stderr.write(
+        `Import hook: ${config.hookToken ? `POST /api/hooks/extracted${config.pathMap.length ? ` (path map: ${config.pathMap.map((m) => `${m.from}=${m.to}`).join(', ')})` : ''}` : 'disabled, set MEDIA_RENAMER_HOOK_TOKEN'}\n`,
+      );
+      server.jobs.restore().catch((error) => process.stderr.write(`warning: could not restore jobs: ${error.message}\n`));
       readSavedSettings(config.settingsFile).then((saved) => {
         const effective = mergeSettings(config.envSettings, saved.settings);
         const where = (target) => target ?? 'rename in place';

@@ -30,6 +30,7 @@ Usage:
   media-renamer apply    <dir> [file...] [options]
   media-renamer apply    <dir> --plan <file|-> [options]
   media-renamer undo     <dir> [options]
+  media-renamer import   <dir> [options]
   media-renamer settings [--format json]
   media-renamer pick     [--start <dir>]
   media-renamer serve    [--port <n>]
@@ -39,6 +40,9 @@ Commands:
   preview   Look up metadata and print proposed names (changes nothing)
   apply     Rename files; uses a fresh preview, or a plan from --plan
   undo      Reverse the last applied batch in <dir>
+  import    Run the automatic import on <dir>: scan, look up, optionally add
+            Dolby Digital Plus tracks to DTS files, then rename and move. Only
+            confident matches are moved; the rest is listed for review.
   settings  Show the effective defaults (saved settings over environment)
   pick      Open the system folder dialog and print the chosen path
             (macOS: AppleScript, Windows: PowerShell, Linux: zenity or kdialog)
@@ -93,9 +97,15 @@ Secrets (environment only, never command-line flags):
   MEDIA_RENAMER_ENV_FILE    KEY=value file to load (default: .env next to the app)
 
 Behaviour:
-  --include-warnings        Also apply items that only matched the parsed name
+  --include-warnings        Also apply/import items that only matched the parsed name
   --strict                  Exit 3 (and do not apply) if any item is an error or conflict
-  --dry-run                 With apply: print what would be renamed, change nothing
+  --dry-run                 With apply/import: print what would happen, change nothing
+
+Import (defaults come from the saved settings / environment):
+  --audio-fix               Add Dolby Digital Plus (E-AC-3) tracks to DTS-only files
+  --no-audio-fix            Do not convert audio for this run
+  --cleanup                 Remove extraction folders left empty
+  --wait <seconds>          Wait until files stop changing first (default 0)
 
 Output:
   --format <f>              table | json | jsonl | tsv (default: table on a TTY, else json)
@@ -141,6 +151,10 @@ function parseCli(argv) {
         'include-warnings': { type: 'boolean' },
         strict: { type: 'boolean' },
         'dry-run': { type: 'boolean' },
+        'audio-fix': { type: 'boolean' },
+        'no-audio-fix': { type: 'boolean' },
+        cleanup: { type: 'boolean' },
+        wait: { type: 'string' },
         format: { type: 'string' },
         absolute: { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
@@ -472,6 +486,75 @@ const commands = {
     return result.failed.length ? EXIT.unresolved : EXIT.ok;
   },
 
+  async import(ctx, positionals, values, output) {
+    if (positionals.length) throw new UsageError('import takes only <dir>');
+    if (values['audio-fix'] && values['no-audio-fix']) throw new UsageError('--audio-fix and --no-audio-fix cannot be combined');
+    const wait = values.wait === undefined ? 0 : Number(values.wait);
+    if (!Number.isFinite(wait) || wait < 0) throw new UsageError('--wait must be a number of seconds');
+    const automation = structuredClone(ctx.settings.automation);
+    if (values['include-warnings']) automation.includeWarnings = true;
+    if (values.cleanup) automation.cleanupEmptyFolders = true;
+    if (values['audio-fix']) automation.audioFix.enabled = true;
+    if (values['no-audio-fix']) automation.audioFix.enabled = false;
+    const settings = { ...ctx.settings, targets: ctx.targets, move: true, patterns: ctx.patterns, filters: ctx.filters, automation };
+
+    const reporter = createProgressReporter(values);
+    let files = [];
+    const steps = new Map();
+    const control = {
+      onProgress: reporter.update,
+      defineSteps: (list) => list.forEach((s) => steps.set(s.id, s.label)),
+      step: (id, patch) => {
+        if (['done', 'skipped', 'failed', 'stopped'].includes(patch.state)) {
+          reporter.end();
+          const mark = { done: '✓', skipped: '–', failed: '✗', stopped: '■' }[patch.state];
+          output.log(`${mark} ${steps.get(id)}${patch.detail ? ` — ${patch.detail}` : ''}`);
+        }
+      },
+      setFiles: (rows) => {
+        files = rows;
+      },
+    };
+    const metadata = new MetadataClient({ tmdbKey: readSecret(process.env, 'TMDB_API_KEY'), language: ctx.language, region: ctx.region });
+    const { loadConfig } = await import('../lib/config.js');
+    const { audioTools } = loadConfig(process.env);
+    const { runImport } = await import('../lib/importer.js');
+    let result;
+    try {
+      result = await runCancellable(output, (signal) =>
+        runImport({
+          root: ctx.root,
+          target: ctx.root,
+          settings,
+          metadata,
+          audioTools,
+          stableSeconds: wait,
+          dryRun: Boolean(values['dry-run']),
+          control: { ...control, signal, stopSignal: new AbortController().signal },
+          owner: 'CLI import',
+        }),
+      );
+    } finally {
+      reporter.end();
+    }
+
+    const shown = files.map((row) => ({ ...row, newRel: row.newRel && values.absolute ? path.join(row.target ?? ctx.root, row.newRel) : row.newRel }));
+    if (output.format === 'json') output.write(`${JSON.stringify({ root: ctx.root, result, files: shown }, null, 2)}\n`);
+    else if (output.format === 'jsonl') shown.forEach((row) => output.write(`${JSON.stringify(row)}\n`));
+    else if (output.format === 'tsv') shown.forEach((row) => output.record([row.outcome, row.rel, row.newRel, row.target ?? '', row.audio ?? row.message ?? '']));
+    else {
+      for (const row of shown) {
+        output.write(`${row.outcome.padEnd(13)} ${row.rel}\n`);
+        if (row.newRel && row.outcome !== 'review') output.write(`${' '.repeat(14)}→ ${row.target && !values.absolute ? path.join(row.target, row.newRel) : row.newRel}\n`);
+        const note = [row.match, row.message, row.audio && `audio: ${row.audio}`].filter(Boolean).join(' — ');
+        if (note) output.write(`${' '.repeat(14)}${note}\n`);
+      }
+    }
+    if (result.imported) output.log(`Undo with: media-renamer undo ${JSON.stringify(ctx.root)}`);
+    if (result.cancelled) return EXIT.cancelled;
+    return result.failed || result.review ? EXIT.unresolved : EXIT.ok;
+  },
+
   async undo(ctx, positionals, values, output) {
     if (positionals.length) throw new UsageError('undo takes only <dir>');
     const reporter = createProgressReporter(values);
@@ -535,8 +618,8 @@ async function main(argv) {
   const root = await resolveRoot(directory);
 
   const targetFlags = ['target', 'tv-target', 'movie-target'].filter((name) => values[name] !== undefined);
-  const usesTargets = ['preview', 'apply'].includes(command);
-  if (targetFlags.length && !usesTargets) throw new UsageError(`--${targetFlags[0]} is only used by preview and apply`);
+  const usesTargets = ['preview', 'apply', 'import'].includes(command);
+  if (targetFlags.length && !usesTargets) throw new UsageError(`--${targetFlags[0]} is only used by preview, apply and import`);
   const wanted = activeTargets(effective);
   if (values.target !== undefined) Object.assign(wanted, { episode: values.target, movie: values.target });
   if (values['tv-target'] !== undefined) wanted.episode = values['tv-target'];
@@ -562,7 +645,7 @@ async function main(argv) {
   } catch (error) {
     throw new UsageError(error.message);
   }
-  const ctx = { root, targets, explicitTarget: targetFlags.length > 0, filters, patterns, language, region };
+  const ctx = { root, targets, explicitTarget: targetFlags.length > 0, filters, patterns, language, region, settings: effective };
   return commands[command](ctx, rest, values, output);
 }
 

@@ -1,5 +1,6 @@
 import { startActivity } from './activity.js';
 import { createFolderPicker } from './picker.js';
+import { breakable, fitHeight } from './text.js';
 
 const $ = (id) => document.getElementById(id);
 // The browser only remembers the last source folder; everything else is saved on the server.
@@ -244,10 +245,14 @@ function describeParsed(parsed) {
 
 function cell(text, className) {
   const td = document.createElement('td');
-  td.textContent = text ?? '';
+  if (className === 'path') td.append(breakable(text));
+  else td.textContent = text ?? '';
   if (className) td.className = className;
   return td;
 }
+
+const fitNameFields = () => document.querySelectorAll('#rows textarea').forEach(fitHeight);
+window.addEventListener('resize', fitNameFields);
 
 function render() {
   const rows = $('rows');
@@ -283,12 +288,19 @@ function render() {
 
     const newNameCell = document.createElement('td');
     if (item.newRel !== null && item.newRel !== undefined) {
-      const input = document.createElement('input');
-      input.type = 'text';
+      // A one-line textarea, so long names wrap instead of being cut off.
+      const input = document.createElement('textarea');
+      input.rows = 1;
+      input.className = 'new-name';
       input.value = item.newRel;
       input.spellcheck = false;
       input.setAttribute('aria-label', `New name for ${item.rel}`);
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') event.preventDefault();
+      });
       input.addEventListener('input', () => {
+        if (/[\r\n]/.test(input.value)) input.value = input.value.replace(/[\r\n]+/g, ' ');
+        fitHeight(input);
         Object.assign(item, { newRel: input.value.trim(), status: 'edited', message: 'Edited by hand', selected: true });
         checkbox.disabled = false;
         checkbox.checked = true;
@@ -298,13 +310,14 @@ function render() {
       });
       const note = document.createElement('span');
       note.className = 'target-note';
-      note.textContent = item.target ? `→ ${KIND_LABEL[item.kind] ?? ''} in ${item.target}` : 'renamed in place';
+      note.append(breakable(item.target ? `→ ${KIND_LABEL[item.kind] ?? ''} in ${item.target}` : 'renamed in place'));
       newNameCell.append(input, note);
     }
 
-    row.append(selectCell, cell(item.rel, 'path'), newNameCell, cell(item.match ?? item.message), statusCell);
+    row.append(selectCell, cell(item.rel, 'path'), newNameCell, cell(item.match ?? item.message, 'match'), statusCell);
     rows.append(row);
   }
+  fitNameFields();
   const renamable = state.items.filter((item) => RENAMABLE.has(item.status));
   $('selectAll').checked = renamable.length > 0 && renamable.every((item) => item.selected);
   $('selectAll').disabled = renamable.length === 0;

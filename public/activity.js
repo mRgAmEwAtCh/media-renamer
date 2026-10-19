@@ -1,3 +1,5 @@
+import { breakable } from './text.js';
+
 const element = (tag, props = {}, ...children) => {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...children.filter((child) => child !== null && child !== undefined && child !== false));
@@ -75,7 +77,7 @@ function progressBlock(job) {
       { className: 'hint' },
       `${phase}: file ${p.filesDone + 1} of ${p.filesTotal} · ${percent}% · ${formatBytes(done)} of ${formatBytes(p.bytesTotal)}`,
     ),
-    element('p', { className: 'path job-current' }, `${p.current.from} → ${p.current.to}`),
+    element('p', { className: 'path job-current' }, breakable(`${p.current.from} → ${p.current.to}`)),
   );
 }
 
@@ -114,9 +116,9 @@ function filesBlock(job, onOpenFolder) {
           'li',
           { className: `outcome-${file.outcome.replace(' ', '-')}` },
           element('span', { className: 'outcome' }, OUTCOME_LABEL[file.outcome] ?? file.outcome),
-          element('span', { className: 'path' }, file.rel),
+          element('span', { className: 'path' }, breakable(file.rel)),
           file.newRel && ['moved', 'converted', 'pending'].includes(file.outcome)
-            ? element('span', { className: 'path hint' }, `→ ${file.target ? `${file.target}/` : ''}${file.newRel}`)
+            ? element('span', { className: 'path hint' }, breakable(`→ ${file.target ? `${file.target}/` : ''}${file.newRel}`))
             : null,
           file.match || file.message ? element('span', { className: 'hint' }, [file.match, file.message].filter(Boolean).join(' — ')) : null,
           file.audio ? element('span', { className: 'hint' }, `Audio: ${file.audio}`) : null,

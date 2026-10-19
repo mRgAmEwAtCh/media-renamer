@@ -37,6 +37,7 @@ const STATIC_FILES = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/picker.js': ['picker.js', 'text/javascript; charset=utf-8'],
   '/activity.js': ['activity.js', 'text/javascript; charset=utf-8'],
+  '/text.js': ['text.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
 };
 const MAX_BODY_BYTES = 2 * 1024 * 1024;

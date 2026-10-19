@@ -149,7 +149,10 @@
       <section class="panel" aria-labelledby="activity-heading">
         <div class="job-head activity-header">
           <h2 id="activity-heading">Activity</h2>
-          <button id="activityClear" type="button" hidden>Clear history</button>
+          <span class="row">
+            <button id="notifyToggle" type="button" hidden></button>
+            <button id="activityClear" type="button" hidden>Clear history</button>
+          </span>
         </div>
         <p id="activityEmpty" class="hint">No jobs yet. Renames you start here and imports started by the downloader appear in this list.</p>
         <ul id="activityList" class="activity"></ul>

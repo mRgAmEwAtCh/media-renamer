@@ -9,6 +9,7 @@ import { isAuthenticated, loginCookie, passwordMatches } from './lib/auth.js';
 import { hostnameOf, loadConfig, loadEnvFile, mapPath } from './lib/config.js';
 import { audioToolsAvailable } from './lib/audio.js';
 import { runImport } from './lib/importer.js';
+import { actionNeeded, Push } from './lib/push.js';
 import { JobManager } from './lib/jobs.js';
 import { MetadataClient, normalizeLanguage, normalizeRegion } from './lib/metadata.js';
 import { nativeDialogAvailable, pickFolderNative } from './lib/native-dialog.js';
@@ -41,6 +42,8 @@ const STATIC_FILES = {
   '/picker.js': ['picker.js', 'text/javascript; charset=utf-8'],
   '/activity.js': ['activity.js', 'text/javascript; charset=utf-8'],
   '/text.js': ['text.js', 'text/javascript; charset=utf-8'],
+  '/notify.js': ['notify.js', 'text/javascript; charset=utf-8'],
+  '/sw.js': ['sw.js', 'text/javascript; charset=utf-8', { public: true }],
   '/style.css': ['style.css', 'text/css; charset=utf-8', { public: true }],
   '/icon.svg': ['icon.svg', 'image/svg+xml', { public: true }],
   '/icon-192.png': ['icon-192.png', 'image/png', { public: true }],
@@ -127,7 +130,7 @@ function createRootPolicy(roots) {
   };
 }
 
-function createRoutes(config, jobs, { createMetadata }) {
+function createRoutes(config, jobs, { createMetadata, push }) {
   const policy = createRootPolicy(config.roots);
   const currentSettings = async () => {
     const saved = await readSavedSettings(config.settingsFile);
@@ -289,6 +292,21 @@ function createRoutes(config, jobs, { createMetadata }) {
     async '/api/jobs/clear'() {
       return { removed: await jobs.clear() };
     },
+    async '/api/push/key'() {
+      return { publicKey: await push.publicKey() };
+    },
+    async '/api/push/subscribe'(body) {
+      try {
+        await push.subscribe(body.subscription);
+      } catch (error) {
+        throw new InputError(error.message);
+      }
+      return { ok: true };
+    },
+    async '/api/push/unsubscribe'(body) {
+      if (typeof body.endpoint === 'string') await push.unsubscribe(body.endpoint);
+      return { ok: true };
+    },
   };
 
   /** Runs one automatic import with the settings that apply when it starts. */
@@ -349,9 +367,16 @@ function createRoutes(config, jobs, { createMetadata }) {
   return { routes, hook, resume };
 }
 
-export function createServer(config, { jobs = new JobManager(), createMetadata = (options) => new MetadataClient(options) } = {}) {
-  const { routes, hook, resume } = createRoutes(config, jobs, { createMetadata });
+export function createServer(
+  config,
+  { jobs = new JobManager(), createMetadata = (options) => new MetadataClient(options), push = new Push(config.pushFile) } = {},
+) {
+  const { routes, hook, resume } = createRoutes(config, jobs, { createMetadata, push });
   jobs.resume ??= resume;
+  jobs.onFinish ??= async (job) => {
+    const message = actionNeeded(job);
+    if (message) await push.notify({ ...message, url: '/' });
+  };
 
   const fail = (response, error) => {
     const status = error.status ?? (error instanceof InputError ? 400 : 500);

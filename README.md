@@ -141,6 +141,14 @@ Each import runs these steps, all shown live in the web UI's **Activity** panel:
 
 Imports run one at a time, after any rename already running. A second call for a folder that is already waiting joins that job. The queue and the history (the last 50 finished jobs) are saved in `jobs.json` in the config folder, so the Activity panel survives restarts: an import waiting or running when the server stops runs again after the restart. **Clear history** in the Activity panel removes the finished jobs; waiting and running jobs stay, and undo is not affected. Imports can be undone with **Undo last batch** on the allowed folder that contains them (e.g. `/media/Downloads`).
 
+### Notifications
+
+Click **🔕 Notify me** in the Activity panel and allow notifications to get a push notification on that device when an import has files that need review or a job fails, even when the page is closed. Click it again to stop. Each browser or phone subscribes separately.
+
+- Browsers allow this only over HTTPS (for example behind a reverse proxy) or on `localhost`; on plain `http://<nas>:4173` the button is not shown.
+- On iPhone/iPad (iOS 16.4+), first add the app to the home screen and open it from there.
+- The server needs outgoing internet access to the browsers' push services. Its keys and the subscriptions are stored in `push.json` in the config folder.
+
 ### Audio fix: Dolby Digital Plus next to DTS
 
 Many TVs, soundbars and apps cannot play DTS. When the audio fix is on, every imported movie (and, optionally, episode) is checked with ffprobe. For each configured language that has a DTS track but no Dolby track (AC3, E-AC-3 or TrueHD), an **E-AC-3 (Dolby Digital Plus) 5.1** track is added in that language, labelled *converted from DTS*.

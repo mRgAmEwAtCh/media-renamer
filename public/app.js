@@ -1,4 +1,5 @@
 import { startActivity } from './activity.js';
+import { setupNotifications } from './notify.js';
 import { createFolderPicker } from './picker.js';
 import { breakable, fitHeight } from './text.js';
 
@@ -549,6 +550,8 @@ async function resumeRunningJob() {
     // No job information available; nothing to resume.
   }
 }
+
+setupNotifications(api).catch((error) => console.warn(`Notifications unavailable: ${error.message}`));
 
 const activity = startActivity({
   api,

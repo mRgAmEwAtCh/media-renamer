@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { listDirectory, listPlaces } from './lib/browse.js';
+import { isAuthenticated, loginCookie, passwordMatches } from './lib/auth.js';
 import { hostnameOf, loadConfig, loadEnvFile, mapPath } from './lib/config.js';
 import { audioToolsAvailable } from './lib/audio.js';
 import { runImport } from './lib/importer.js';
@@ -34,11 +35,13 @@ import {
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const STATIC_FILES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
+  '/login': ['login.html', 'text/html; charset=utf-8', { public: true }],
+  '/login.js': ['login.js', 'text/javascript; charset=utf-8', { public: true }],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/picker.js': ['picker.js', 'text/javascript; charset=utf-8'],
   '/activity.js': ['activity.js', 'text/javascript; charset=utf-8'],
   '/text.js': ['text.js', 'text/javascript; charset=utf-8'],
-  '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/style.css': ['style.css', 'text/css; charset=utf-8', { public: true }],
   '/icon.svg': ['icon.svg', 'image/svg+xml', { public: true }],
   '/icon-192.png': ['icon-192.png', 'image/png', { public: true }],
   '/icon-512.png': ['icon-512.png', 'image/png', { public: true }],
@@ -97,13 +100,6 @@ async function readJsonOrForm(request) {
 }
 
 const digest = (value) => createHash('sha256').update(value, 'utf8').digest();
-
-function authorized(request, password) {
-  const match = String(request.headers.authorization ?? '').match(/^Basic\s+([A-Za-z0-9+/=]+)$/i);
-  if (!match) return false;
-  const decoded = Buffer.from(match[1], 'base64').toString('utf8');
-  return timingSafeEqual(digest(decoded.slice(decoded.indexOf(':') + 1)), digest(password));
-}
 
 function isWithin(root, target) {
   const relative = path.relative(root, target);
@@ -380,13 +376,22 @@ export function createServer(config, { jobs = new JobManager(), createMetadata =
         return fail(response, error);
       }
     }
-    if (config.password && !authorized(request, config.password)) {
-      // Phones fetch home-screen icons and the manifest without the password.
-      if (request.method === 'GET' && STATIC_FILES[pathname]?.[2]?.public) return serveStatic(response, pathname);
-      return send(response, 401, { error: 'Authentication required' }, undefined, {
-        'WWW-Authenticate': 'Basic realm="Media Renamer", charset="UTF-8"',
-      });
+    if (config.password && pathname === '/api/login' && request.method === 'POST') {
+      try {
+        const { password } = await readJson(request);
+        if (!passwordMatches(password, config.password)) return send(response, 401, { error: 'Wrong password' });
+        return send(response, 200, { ok: true }, undefined, { 'Set-Cookie': loginCookie(config.password) });
+      } catch (error) {
+        return fail(response, error);
+      }
     }
+    if (config.password && !isAuthenticated(request, config.password)) {
+      // Phones fetch home-screen icons and the manifest without logging in.
+      if (request.method === 'GET' && STATIC_FILES[pathname]?.[2]?.public) return serveStatic(response, pathname);
+      if (request.method === 'GET' && pathname === '/') return send(response, 302, '', 'text/plain', { Location: '/login' });
+      return send(response, 401, { error: 'Login required' });
+    }
+    if (pathname === '/login') return send(response, 302, '', 'text/plain', { Location: '/' });
 
     try {
       if (request.method === 'GET' && STATIC_FILES[pathname]) return await serveStatic(response, pathname);

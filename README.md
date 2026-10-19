@@ -30,7 +30,7 @@ The image is multi-arch (x86-64 and ARM, e.g. Raspberry Pi). It runs as an unpri
 3. Start it.
    - **SSH:** `mkdir -p config && docker compose up -d --build` in that folder.
    - **OMV web UI** (Services → Compose → Files): paste `compose.yaml` and the `.env` contents. The compose plugin needs the image to exist or a build context, so building once over SSH (or `docker build -t media-renamer:latest .`) is simplest.
-4. Open `http://<nas>:4173/`, log in with any user name and your password, and click **Browse…**. Only the folders in `MEDIA_RENAMER_ROOTS` are visible.
+4. Open `http://<nas>:4173/`, log in with your password, and click **Browse…**. Only the folders in `MEDIA_RENAMER_ROOTS` are visible.
 
 **Updating:** `git pull && docker compose up -d --build`. Your `.env` and `config/` are not tracked by git, so updates never touch them.
 
@@ -76,7 +76,7 @@ All settings come from the environment, a `.env` file next to the app, or the fi
 | `PORT` | `4173` | Web server port. |
 | `MEDIA_RENAMER_ROOTS` | — (`/media,/library` in compose) | Comma-separated folders the web UI may browse, rename and move in. Symlinks cannot escape them, and the system folder dialog is disabled when set. In Docker, set it in `.env` for a single-mount setup (see below). |
 | `MEDIA_RENAMER_ALLOWED_HOSTS` | loopback only | Comma-separated hostnames/IPs accepted in the `Host` header (blocks DNS rebinding). Use `*` to accept any; that is also the default when listening on a non-loopback address. |
-| `MEDIA_RENAMER_PASSWORD` / `_FILE` | — | Require HTTP Basic auth (any user name). Strongly recommended on a network. |
+| `MEDIA_RENAMER_PASSWORD` / `_FILE` | — | Require this password on a login page (scripts can use Basic auth, e.g. `curl -u any:<password>`). Strongly recommended on a network. |
 | `UMASK` | system | Octal umask for folders created by renames, e.g. `002`. |
 
 The server warns at startup when it listens on the network without a password, allowed hosts, or root folders.

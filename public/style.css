@@ -147,6 +147,13 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .outcome-failed .outcome { color: var(--bad); }
 button.link { border: none; background: none; color: var(--accent); padding: 0.2rem 0; text-align: left; }
 
+.login { max-width: 360px; min-height: 100vh; margin: 0 auto; padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.login h1 { margin: 0.75rem 0 1.25rem; font-size: 1.6rem; }
+.login form { width: 100%; display: grid; gap: 0.75rem; padding: 1.25rem; }
+.login input { font-size: 16px; min-height: 44px; }
+.login button { min-height: 44px; }
+.login-error { color: var(--bad); margin: 0; min-height: 1.2em; font-size: 0.9rem; }
+
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
 .field > label { font-size: 0.85rem; color: var(--muted); }
 .input-group { display: flex; gap: 0.5rem; }

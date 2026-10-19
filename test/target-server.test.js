@@ -261,13 +261,42 @@ describe('web server on a NAS', () => {
   test('healthz needs no password; everything else does', async () => {
     assert.equal((await request('/healthz', { password: null })).status, 200);
     const anonymous = await request('/', { password: null });
-    assert.equal(anonymous.status, 401);
-    assert.match(anonymous.headers['www-authenticate'], /^Basic/);
-    assert.equal((await request('/', { password: 'wrong' })).status, 401);
+    assert.equal(anonymous.status, 302);
+    assert.equal(anonymous.headers.location, '/login');
+    const api = await post('/api/settings', {}, { password: null });
+    assert.equal(api.status, 401);
+    assert.equal(api.headers['www-authenticate'], undefined, 'no browser pop-up');
+    assert.equal((await request('/api/settings', { method: 'POST', password: 'wrong' })).status, 401);
     assert.equal((await request('/')).status, 200);
   });
 
-  test('app icons and the manifest load without a password; other files still need it', async () => {
+  test('the login page sets a cookie that replaces the password', async () => {
+    assert.equal((await request('/login', { password: null })).status, 200);
+    assert.equal((await post('/api/login', { password: 'wrong' }, { password: null })).status, 401);
+    const login = await post('/api/login', { password: 's3cret' }, { password: null });
+    assert.equal(login.status, 200);
+    const cookie = login.headers['set-cookie'][0].split(';')[0];
+    assert.match(login.headers['set-cookie'][0], /HttpOnly/);
+    const withCookie = (pathname, options = {}) =>
+      new Promise((resolve, reject) => {
+        const req = http.request(
+          { host: '127.0.0.1', port, method: options.method ?? 'GET', path: pathname, headers: { Host: '127.0.0.1', Cookie: options.cookie ?? cookie, 'Content-Type': 'application/json' } },
+          (res) => {
+            res.resume();
+            res.on('end', () => resolve({ status: res.statusCode, location: res.headers.location }));
+          },
+        );
+        req.on('error', reject);
+        req.end(options.method === 'POST' ? '{}' : undefined);
+      });
+    assert.equal((await withCookie('/')).status, 200);
+    assert.equal((await withCookie('/api/settings', { method: 'POST' })).status, 200);
+    assert.equal((await withCookie('/login')).location, '/');
+    assert.equal((await withCookie('/', { cookie: `${cookie}x` })).status, 302);
+    assert.equal((await withCookie('/', { cookie: 'media_renamer_session=forged' })).status, 302);
+  });
+
+  test('icons, the manifest and the login page load without a password; the app still needs it', async () => {
     for (const [pathname, type] of [
       ['/icon.svg', 'image/svg+xml'],
       ['/apple-touch-icon.png', 'image/png'],
@@ -279,7 +308,6 @@ describe('web server on a NAS', () => {
       assert.ok(response.headers['content-type'].startsWith(type), pathname);
     }
     assert.equal((await request('/app.js', { password: null })).status, 401);
-    assert.equal((await request('/style.css', { password: null })).status, 401);
     assert.equal(JSON.parse((await request('/manifest.webmanifest', { password: null })).text).name, 'Media Renamer');
   });
 

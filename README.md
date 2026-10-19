@@ -12,17 +12,27 @@ Requires Node.js 22 or newer and has no npm dependencies.
 
 The image is multi-arch (x86-64 and ARM, e.g. Raspberry Pi). It runs as an unprivileged user with a read-only filesystem and no capabilities, and contains no secrets.
 
-1. Copy this folder to the NAS, e.g. `/srv/dev-disk-by-uuid-…/appdata/media-renamer`.
+1. Clone the repository on the NAS, e.g. `git clone https://github.com/mRgAmEwAtCh/media-renamer.git /srv/dev-disk-by-uuid-…/appdata/media-renamer`.
 2. Create `.env` next to `compose.yaml` from `.env.example` and fill in:
    - `MEDIA_PATH`: shared folder with incoming files, mounted at `/media`.
    - `LIBRARY_PATH`: shared folder to move renamed files into, mounted at `/library`. It may be on another disk.
    - `MEDIA_RENAMER_TV_TARGET` / `MEDIA_RENAMER_MOVIE_TARGET`: where TV episodes and movies go inside the container, e.g. `/library/TV` and `/library/Movies`. You can also set them later in the web UI.
    - `PUID` / `PGID`: owner of the media files (run `id <user>` on the NAS). OMV's `users` group is usually `100`.
    - `MEDIA_RENAMER_PASSWORD`, `MEDIA_RENAMER_ALLOWED_HOSTS`, and optionally `TMDB_API_KEY`.
+
+   **Single mount for instant moves.** Two bind mounts are separate filesystems to Linux, even on the same disk, so moving from `/media` to `/library` copies the file. If your downloads and libraries share a disk or a mergerfs pool, mount the common parent once and list the shares instead:
+   ```bash
+   MEDIA_PATH=/srv/mergerfs/Pool          # leave LIBRARY_PATH unset
+   MEDIA_RENAMER_ROOTS=/media/Downloads,/media/TV,/media/Movies
+   MEDIA_RENAMER_TV_TARGET=/media/TV
+   MEDIA_RENAMER_MOVIE_TARGET=/media/Movies
+   ```
 3. Start it.
    - **SSH:** `mkdir -p config && docker compose up -d --build` in that folder.
    - **OMV web UI** (Services → Compose → Files): paste `compose.yaml` and the `.env` contents. The compose plugin needs the image to exist or a build context, so building once over SSH (or `docker build -t media-renamer:latest .`) is simplest.
-4. Open `http://<nas>:4173/`, log in with any user name and your password, and click **Browse…**. Only `/media` and `/library` are visible.
+4. Open `http://<nas>:4173/`, log in with any user name and your password, and click **Browse…**. Only the folders in `MEDIA_RENAMER_ROOTS` are visible.
+
+**Updating:** `git pull && docker compose up -d --build`. Your `.env` and `config/` are not tracked by git, so updates never touch them.
 
 The CLI is available inside the container and uses the same configuration:
 
@@ -53,7 +63,7 @@ All settings come from the environment, a `.env` file next to the app, or the fi
 | `MEDIA_RENAMER_SHUTDOWN_GRACE` | `8` (`570` in compose) | Seconds a running job may finish its current file when the server stops. Keep it below Docker's `stop_grace_period`. |
 | `HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Address the web server listens on. |
 | `PORT` | `4173` | Web server port. |
-| `MEDIA_RENAMER_ROOTS` | — (`/media,/library` in compose) | Comma-separated folders the web UI may browse, rename and move in. Symlinks cannot escape them, and the system folder dialog is disabled when set. |
+| `MEDIA_RENAMER_ROOTS` | — (`/media,/library` in compose) | Comma-separated folders the web UI may browse, rename and move in. Symlinks cannot escape them, and the system folder dialog is disabled when set. In Docker, set it in `.env` for a single-mount setup (see below). |
 | `MEDIA_RENAMER_ALLOWED_HOSTS` | loopback only | Comma-separated hostnames/IPs accepted in the `Host` header (blocks DNS rebinding). Use `*` to accept any; that is also the default when listening on a non-loopback address. |
 | `MEDIA_RENAMER_PASSWORD` / `_FILE` | — | Require HTTP Basic auth (any user name). Strongly recommended on a network. |
 | `UMASK` | system | Octal umask for folders created by renames, e.g. `002`. |

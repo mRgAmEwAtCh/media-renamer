@@ -16,7 +16,9 @@ services:
       - "${MEDIA_RENAMER_PORT:-4173}:4173"
     environment:
       # The web UI may only browse, rename and move inside these container folders.
-      MEDIA_RENAMER_ROOTS: /media,/library
+      # Single-mount setup (whole disk or pool as MEDIA_PATH, so moves are instant
+      # renames): list the shares here, e.g. /media/Downloads,/media/TV,/media/Movies.
+      MEDIA_RENAMER_ROOTS: ${MEDIA_RENAMER_ROOTS:-/media,/library}
       # Default destinations per kind (empty = rename in place). The web UI's
       # "Save as default" overrides these and the patterns below; it saves to /config.
       MEDIA_RENAMER_TV_TARGET: ${MEDIA_RENAMER_TV_TARGET:-}
@@ -37,9 +39,11 @@ services:
       UMASK: ${UMASK:-002}
       TZ: ${TZ:-Etc/UTC}
     volumes:
-      # Incoming files to rename (e.g. your downloads share).
+      # Incoming files to rename (e.g. your downloads share), or a whole disk/pool.
       - ${MEDIA_PATH:?Set MEDIA_PATH to your incoming media shared folder}:/media
       # Where renamed files can be moved (e.g. your library share). Defaults to MEDIA_PATH.
+      # Moves between /media and /library are copies even on the same disk; for instant
+      # moves, mount one parent folder as MEDIA_PATH and keep destinations under /media.
       - ${LIBRARY_PATH:-${MEDIA_PATH}}:/library
       # Saved settings. Create the folder first (mkdir -p config) so it belongs to PUID.
       - ./config:/config

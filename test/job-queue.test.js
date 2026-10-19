@@ -102,3 +102,24 @@ test('cancelling a queued job removes it from the queue', async () => {
   assert.equal(manager.get(second.id).state, 'cancelled');
   assert.ok(manager.findActive(() => true) === null);
 });
+
+test('clearing the history removes finished jobs, keeps active ones and persists', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mr-jobs-clear-'));
+  const storeFile = path.join(dir, 'jobs.json');
+  const manager = new JobManager({ storeFile });
+  const done = manager.start({ kind: 'apply', root: '/a', run: async () => ({ renamed: 1 }) });
+  await waitFor(manager, done.id, ['finished']);
+  const gate = deferred();
+  const running = manager.start({ kind: 'apply', root: '/a', run: () => gate.promise });
+  const queued = manager.start({ kind: 'apply', root: '/a', run: async () => ({ renamed: 0 }) });
+
+  assert.equal(await manager.clear(), 1);
+  assert.deepEqual(manager.list().map((job) => job.id), [queued.id, running.id]);
+  const stored = JSON.parse(await fs.readFile(storeFile, 'utf8'));
+  assert.deepEqual(stored.map((job) => job.id).sort(), [queued.id, running.id].sort());
+
+  gate.resolve({ renamed: 0 });
+  await waitFor(manager, queued.id, ['finished']);
+  await manager.save();
+  await fs.rm(dir, { recursive: true, force: true });
+});

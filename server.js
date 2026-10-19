@@ -278,6 +278,9 @@ function createRoutes(config, jobs, { createMetadata }) {
       if (typeof body.id !== 'string') throw new InputError('Job id required');
       return { job: jobs.cancel(body.id) };
     },
+    async '/api/jobs/clear'() {
+      return { removed: await jobs.clear() };
+    },
   };
 
   /** Runs one automatic import with the settings that apply when it starts. */

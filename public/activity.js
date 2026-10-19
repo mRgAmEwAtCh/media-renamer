@@ -136,11 +136,21 @@ function filesBlock(job, onOpenFolder) {
 export function startActivity({ api, onOpenFolder, onChange }) {
   const list = document.getElementById('activityList');
   const empty = document.getElementById('activityEmpty');
+  const clear = document.getElementById('activityClear');
   let timer = null;
   let lastActive = false;
 
+  clear.addEventListener('click', async () => {
+    if (!confirm('Clear the finished jobs from the history? Waiting and running jobs stay. Undo is not affected.')) return;
+    clear.disabled = true;
+    await api('/api/jobs/clear', {}).catch(() => {});
+    clear.disabled = false;
+    refresh();
+  });
+
   function render(jobs) {
     empty.hidden = jobs.length > 0;
+    clear.hidden = !jobs.some((job) => !ACTIVE.has(job.state));
     list.replaceChildren(
       ...jobs.map((job) => {
         const cancel = ACTIVE.has(job.state) && job.state !== 'cancelling'

@@ -101,6 +101,7 @@ tr.status-skipped, tr.status-unchanged { color: var(--muted); }
 .job progress { width: 100%; height: 0.9rem; accent-color: var(--accent); }
 .job-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .job-head h2 { margin: 0; }
+.activity-header { margin-bottom: 0.75rem; }
 .job-current { margin: 0.75rem 0 0.25rem; font-size: 0.85rem; word-break: break-all; min-height: 1.2em; }
 #jobOverallLabel { display: block; margin: 0.5rem 0 0.25rem; }
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { ActivityPanel } from './components/ActivityPanel.tsx';
-import { FileTable, selectedItems } from './components/FileTable.tsx';
+import { FileTable } from './components/FileTable.tsx';
 import { useFolderPicker } from './components/FolderPicker.tsx';
 import { JobPanel } from './components/JobPanel.tsx';
 import { NamingPanel } from './components/NamingPanel.tsx';
 import { SourcePanel } from './components/SourcePanel.tsx';
 import { saveLocal } from './local.ts';
+import { selectedItems } from './items.ts';
 import { formFilters } from './settings-form.ts';
 import { useActivity } from './hooks/useActivity.ts';
 import { useRenamer } from './hooks/useRenamer.ts';
@@ -116,7 +117,7 @@ export function App() {
             Preview names
           </button>
           <button type="button" className="primary" disabled={busy || !selected.length || renamer.stale} onClick={renamer.apply}>
-            {selected.some((item) => item.target) ? 'Rename & move selected' : 'Rename selected'}
+            {selected.some((item) => item.target && item.resolution !== 'remove') ? 'Rename & move selected' : 'Rename selected'}
           </button>
           <button type="button" disabled={busy || !scan.root} onClick={renamer.undo}>
             Undo last batch
@@ -137,7 +138,7 @@ export function App() {
             renamer.scanFolder({ folder });
           }}
         />
-        <FileTable items={scan.items} version={scan.version} onChange={renamer.setItems} />
+        <FileTable items={scan.items} version={scan.version} onChange={renamer.setItems} onKeepBoth={renamer.keepBoth} />
       </main>
       <Credits />
       {picker}

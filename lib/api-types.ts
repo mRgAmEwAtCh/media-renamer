@@ -109,7 +109,20 @@ export interface PreviewResponse {
 
 export interface ApplyRequest {
   root: string;
-  renames: Pick<RenameRequest, 'from' | 'to' | 'target'>[];
+  renames: Pick<RenameRequest, 'from' | 'to' | 'target' | 'overwrite'>[];
+  /** Files (relative to root) to delete, e.g. a download already in the library. Not undoable. */
+  remove?: string[];
+}
+
+/** The next free name for keeping a file next to one that already has its name. */
+export interface FreeNameRequest {
+  root: string;
+  /** The destination folder, or null when renamed in place. */
+  target: string | null;
+  /** The wanted name, relative to the destination. */
+  rel: string;
+  /** Names already planned for the same destination. */
+  taken?: string[];
 }
 
 /** The job's id identifies it in later /api/job and /api/job/cancel calls. */
@@ -125,6 +138,7 @@ export interface ApiRoutes {
   '/api/pick-folder': [{ start?: string }, PickFolderResult];
   '/api/scan': [ScanRequest, ScanResponse];
   '/api/preview': [PreviewRequest, PreviewResponse];
+  '/api/free-name': [FreeNameRequest, { newRel: string }];
   '/api/apply': [ApplyRequest, StartedJob];
   '/api/undo': [{ root: string }, StartedJob];
   '/api/job': [{ id?: string }, { job: JobSnapshot | null }];

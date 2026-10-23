@@ -85,19 +85,21 @@ export interface MoveOptions {
   signal?: AbortSignal;
   onProgress?: ByteProgress;
   partialPath?: string;
+  /** Replace a file that already has the target name (a same-disk rename always does). */
+  overwrite?: boolean;
 }
 
 /**
  * Move one file. A same-filesystem rename is instant. Across disks or mounts
  * (EXDEV) the file is copied to a hidden temporary name next to the target,
- * synced, size-checked, committed without overwriting, and only then is the
- * original deleted. Cancelling (signal) or any failure removes the partial copy
+ * synced, size-checked, committed (without overwriting unless `overwrite`), and
+ * only then is the original deleted. Cancelling (signal) or any failure removes the partial copy
  * and leaves the original untouched.
  */
 export async function moveFile(
   from: string,
   to: string,
-  { rename = fs.rename, signal, onProgress, partialPath }: MoveOptions = {},
+  { rename = fs.rename, signal, onProgress, partialPath, overwrite = false }: MoveOptions = {},
 ): Promise<'renamed' | 'copied'> {
   throwIfCancelled(signal);
   const source = await fs.stat(from);
@@ -117,7 +119,8 @@ export async function moveFile(
     await fs.chmod(temp, source.mode & 0o7777).catch(() => {});
     await fs.utimes(temp, source.atime, source.mtime).catch(() => {});
     throwIfCancelled(signal); // last point to cancel before the copy becomes visible
-    await commitNoOverwrite(temp, to);
+    if (overwrite) await fs.rename(temp, to);
+    else await commitNoOverwrite(temp, to);
   } catch (error) {
     await fs.rm(temp, { force: true }).catch(() => {});
     if (isCancellation(error) || signal?.aborted) throw new CancelledError();

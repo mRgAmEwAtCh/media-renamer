@@ -42,7 +42,11 @@ function summary(job: JobSnapshot): string {
   }
   const r = job.result;
   if ('restored' in r) return `${r.restored} restored${r.skipped?.length ? ` · ${r.skipped.length} skipped` : ''}`;
-  if ('renamed' in r) return `${r.renamed} renamed${r.failed?.length ? ` · ${r.failed.length} failed` : ''}`;
+  if ('renamed' in r) {
+    const replaced = r.renames?.filter((rename) => rename.replaced).length;
+    const parts = [`${r.renamed} renamed`, replaced && `${replaced} replaced`, r.removed?.length && `${r.removed.length} deleted`, r.failed?.length && `${r.failed.length} failed`];
+    return parts.filter(Boolean).join(' · ');
+  }
   return '';
 }
 
@@ -72,8 +76,10 @@ function Steps({ steps }: { steps: Step[] }) {
           <span className="step-icon" aria-hidden="true">
             {STEP_ICON[step.state] ?? '○'}
           </span>
-          <span className="step-label">{step.label}</span>
-          {step.detail && <span className="step-detail">{` — ${step.detail}`}</span>}
+          <span>
+            <span className="step-label">{step.label}</span>
+            {step.detail && <span className="step-detail">{` — ${step.detail}`}</span>}
+          </span>
         </li>
       ))}
     </ol>
@@ -106,7 +112,7 @@ function Files({ job, onOpenFolder }: { job: JobSnapshot; onOpenFolder: (folder:
       </ul>
       {reviewFolders.map((folder) => (
         <button key={folder} type="button" className="link" onClick={() => onOpenFolder(folder)}>
-          {`Open ${folder} in the renamer`}
+          <Breakable text={`Open ${folder} in the renamer`} />
         </button>
       ))}
     </details>
@@ -119,7 +125,9 @@ export function ActivityItem({ job, onCancel, onOpenFolder }: { job: JobSnapshot
   return (
     <li className={`activity-item state-${job.state}`}>
       <div className="activity-head">
-        <strong>{title(job)}</strong>
+        <strong>
+          <Breakable text={title(job)} />
+        </strong>
         <span className={`badge badge-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
         <span className="hint">{`${source} · ${formatDay(job.queuedAt)} ${formatTime(job.startedAt ?? job.queuedAt)}`}</span>
         {isActive(job) && job.state !== 'cancelling' && (

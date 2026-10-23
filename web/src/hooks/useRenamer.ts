@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScanResponse } from '../../../lib/api-types.ts';
 import type { JobSnapshot, Targets } from '../../../lib/types.ts';
 import { api, errorMessage, sleep } from '../api.ts';
-import { itemsFromScan, selectedItems, type Item } from '../components/FileTable.tsx';
+import { resolveConflict } from '../conflicts.ts';
+import { itemsFromPreview, itemsFromScan, selectedItems, type Item } from '../items.ts';
 import { reportJob } from '../job-report.ts';
 import { readLocal, saveLocal } from '../local.ts';
 import { formFilters, previewOptions, requestedTargets, type SettingsForm } from '../settings-form.ts';
@@ -85,14 +86,16 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
     await run('Looking up metadata…', async () => {
       const files = (scan.items ?? []).map((item) => item.rel);
       const data = await api('/api/preview', { root: scan.root, targets, files, ...previewOptions(form) });
-      const items = data.items.map((item) => ({ ...item, selected: item.status === 'ok' }));
+      const items = itemsFromPreview(data.items);
       setScan((current) => ({ ...current, previewTargets: targets, previewed: true, items, version: current.version + 1 }));
       const ready = items.filter((item) => item.selected);
       const moving = (['episode', 'movie'] as const)
         .map((kind) => [kind, ready.filter((item) => item.kind === kind && item.target).length] as const)
         .filter(([, count]) => count)
         .map(([kind, count]) => `${count} to ${data.targets[kind]}`);
-      setStatus(`${ready.length} file(s) ready${moving.length ? ` (moving ${moving.join(', ')})` : ''}. Review warnings before selecting them.`);
+      const conflicts = items.filter((item) => item.conflict).length;
+      const decide = conflicts ? ` ${conflicts} conflict(s): choose Keep both, Overwrite or Skip.` : '';
+      setStatus(`${ready.length} file(s) ready${moving.length ? ` (moving ${moving.join(', ')})` : ''}. Review warnings before selecting them.${decide}`);
     });
   }
 
@@ -138,12 +141,45 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
 
   async function apply() {
     const selected = selectedItems(scan.items ?? []);
-    const renames = selected.map((item) => ({ from: item.rel, to: item.newRel!, target: item.target ?? null }));
-    const byTarget = Object.entries(Object.groupBy(selected, (item) => item.target ?? '')).map(([target, list]) =>
+    const moving = selected.filter((item) => item.resolution !== 'remove');
+    const renames = moving.map((item) => ({
+      from: item.rel,
+      to: item.newRel!,
+      target: item.target ?? null,
+      ...(item.resolution === 'overwrite' && { overwrite: true }),
+    }));
+    const remove = selected.filter((item) => item.resolution === 'remove').map((item) => item.rel);
+    const replacing = renames.filter((rename) => rename.overwrite).length;
+    const byTarget = Object.entries(Object.groupBy(moving, (item) => item.target ?? '')).map(([target, list]) =>
       target ? `${list!.length} into ${target}` : `${list!.length} in place`,
     );
-    if (!renames.length || !confirm(`Rename ${renames.length} file(s): ${byTarget.join(', ')}?`)) return;
-    await startJob(() => api('/api/apply', { root: scan.root, renames }));
+    const parts = [
+      renames.length && `Rename ${renames.length} file(s): ${byTarget.join(', ')}`,
+      replacing && `replace ${replacing} existing file(s)`,
+      remove.length && `delete ${remove.length} extracted file(s)`,
+    ].filter(Boolean);
+    const warning = replacing || remove.length ? '\n\nReplaced and deleted files cannot be restored with “Undo last batch”.' : '';
+    if (!parts.length || !confirm(`${parts.join('; ')}?${warning}`)) return;
+    await startJob(() => api('/api/apply', { root: scan.root, renames, ...(remove.length && { remove }) }));
+  }
+
+  /** Settle a conflict by keeping both files: the new one gets the next free name. */
+  async function keepBoth(index: number) {
+    const { version, root: folder } = scan;
+    const items = scan.items ?? [];
+    const item = items[index];
+    const wanted = item.originalNewRel ?? item.newRel!;
+    const taken = items.filter((other) => other !== item && other.newRel && (other.target ?? null) === (item.target ?? null)).map((other) => other.newRel!);
+    try {
+      const { newRel } = await api('/api/free-name', { root: folder, target: item.target, rel: wanted, taken });
+      // A rescan or new preview while waiting replaces the rows; then this answer is stale.
+      setScan((current) => {
+        const at = current.version === version ? (current.items ?? []).findIndex((row) => row.rel === item.rel) : -1;
+        return at < 0 ? current : { ...current, items: resolveConflict(current.items!, at, 'keep-both', newRel) };
+      });
+    } catch (error) {
+      setStatus(errorMessage(error), 'error');
+    }
   }
 
   async function undo() {
@@ -201,6 +237,7 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
       if (live.current.scan.root && !live.current.busy) rescan().catch(() => {});
     },
     preview,
+    keepBoth,
     apply,
     undo,
     cancelJob,

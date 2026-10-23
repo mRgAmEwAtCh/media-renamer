@@ -29,19 +29,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
+    # Node 22 + ffmpeg/ffprobe (without them the audio-fix tests are skipped).
+    # Built by ci-image.yml from .github/ci/Dockerfile.
+    container:
+      image: ghcr.io/mrgamewatch/media-renamer-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-
-      # Without ffmpeg/ffprobe the audio-fix tests are skipped.
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Run tests
         run: npm test

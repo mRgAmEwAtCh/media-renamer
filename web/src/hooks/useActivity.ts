@@ -5,6 +5,14 @@ import { api } from '../api.ts';
 export const ACTIVE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'cancelling']);
 export const isActive = (job: JobSnapshot): boolean => ACTIVE_STATES.has(job.state);
 
+/** How long a removed job can be brought back before it is deleted on the server. */
+const UNDO_MS = 5000;
+
+/** Delete a job from the history, also while the page is being closed. */
+function sendRemoval(id: string): void {
+  navigator.sendBeacon('/api/job/remove', new Blob([JSON.stringify({ id })], { type: 'application/json' }));
+}
+
 /**
  * Queued, running and recent jobs, polled from the server: often while a job
  * runs, rarely when idle or when the page is hidden. `onSettled` runs when the
@@ -13,6 +21,10 @@ export const isActive = (job: JobSnapshot): boolean => ACTIVE_STATES.has(job.sta
 export function useActivity(onSettled: () => void) {
   const [jobs, setJobs] = useState<JobSnapshot[]>([]);
   const [clearing, setClearing] = useState(false);
+  // Removed jobs disappear at once; the server forgets them when the undo time is up.
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const [removed, setRemoved] = useState<JobSnapshot | null>(null);
+  const pending = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastActive = useRef(false);
   const settled = useRef(onSettled);
@@ -64,5 +76,59 @@ export function useActivity(onSettled: () => void) {
     [refresh],
   );
 
-  return { jobs, refresh, clear, clearing, cancel };
+  const setHiddenId = (id: string, hide: boolean) =>
+    setHidden((current) => {
+      const next = new Set(current);
+      if (hide) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const commitRemoval = useCallback(
+    (id: string) => {
+      api('/api/job/remove', { id }).then(refresh, () => setHiddenId(id, false));
+    },
+    [refresh],
+  );
+
+  /** Remove a finished job from the history, with a few seconds to undo. Only one removal can be undone at a time. */
+  const remove = useCallback(
+    (job: JobSnapshot) => {
+      if (pending.current) {
+        clearTimeout(pending.current.timer);
+        commitRemoval(pending.current.id);
+      }
+      setHiddenId(job.id, true);
+      setRemoved(job);
+      const timer = setTimeout(() => {
+        pending.current = null;
+        setRemoved(null);
+        commitRemoval(job.id);
+      }, UNDO_MS);
+      pending.current = { id: job.id, timer };
+    },
+    [commitRemoval],
+  );
+
+  const undoRemove = useCallback(() => {
+    if (!pending.current) return;
+    clearTimeout(pending.current.timer);
+    setHiddenId(pending.current.id, false);
+    pending.current = null;
+    setRemoved(null);
+  }, []);
+
+  useEffect(() => {
+    const flush = () => {
+      if (!pending.current) return;
+      clearTimeout(pending.current.timer);
+      sendRemoval(pending.current.id);
+      pending.current = null;
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, []);
+
+  const visible = jobs.filter((job) => !hidden.has(job.id));
+  return { jobs: visible, refresh, clear, clearing, cancel, remove, removed, undoRemove };
 }

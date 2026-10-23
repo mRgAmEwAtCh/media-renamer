@@ -144,6 +144,7 @@ export interface ApiRoutes {
   '/api/job': [{ id?: string }, { job: JobSnapshot | null }];
   '/api/jobs': [Record<string, never>, { jobs: JobSnapshot[] }];
   '/api/job/cancel': [{ id: string }, { job: JobSnapshot }];
+  '/api/job/remove': [{ id: string }, { removed: true }];
   '/api/jobs/clear': [Record<string, never>, { removed: number }];
   '/api/push/key': [Record<string, never>, { publicKey: string }];
   '/api/push/subscribe': [{ subscription: unknown }, { ok: true }];

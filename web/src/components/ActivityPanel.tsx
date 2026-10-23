@@ -1,7 +1,7 @@
 import type { JobSnapshot } from '../../../lib/types.ts';
 import { isActive } from '../hooks/useActivity.ts';
 import { useNotifications } from '../hooks/useNotifications.ts';
-import { ActivityItem } from './ActivityItem.tsx';
+import { ActivityItem, title } from './ActivityItem.tsx';
 
 function NotifyButton() {
   const { available, enabled, pending, toggle } = useNotifications();
@@ -23,11 +23,15 @@ interface ActivityPanelProps {
   clearing: boolean;
   onClear: () => void;
   onCancel: (job: JobSnapshot) => void;
+  onRemove: (job: JobSnapshot) => void;
+  /** The job just removed, while it can still be brought back. */
+  removed: JobSnapshot | null;
+  onUndoRemove: () => void;
   onOpenFolder: (folder: string) => void;
 }
 
 /** Queued, running and recent jobs: renames started here and imports started by the downloader. */
-export function ActivityPanel({ jobs, clearing, onClear, onCancel, onOpenFolder }: ActivityPanelProps) {
+export function ActivityPanel({ jobs, clearing, onClear, onCancel, onRemove, removed, onUndoRemove, onOpenFolder }: ActivityPanelProps) {
   return (
     <section className="panel" aria-labelledby="activity-heading">
       <div className="job-head activity-header">
@@ -44,9 +48,17 @@ export function ActivityPanel({ jobs, clearing, onClear, onCancel, onOpenFolder 
       {jobs.length === 0 && <p className="hint">No jobs yet. Renames you start here and imports started by the downloader appear in this list.</p>}
       <ul className="activity">
         {jobs.map((job) => (
-          <ActivityItem key={job.id} job={job} onCancel={() => onCancel(job)} onOpenFolder={onOpenFolder} />
+          <ActivityItem key={job.id} job={job} onCancel={() => onCancel(job)} onRemove={() => onRemove(job)} onOpenFolder={onOpenFolder} />
         ))}
       </ul>
+      {removed && (
+        <div className="snackbar" role="status">
+          <span>{`Removed “${title(removed)}” from the history.`}</span>
+          <button type="button" className="link" onClick={onUndoRemove}>
+            Undo
+          </button>
+        </div>
+      )}
     </section>
   );
 }

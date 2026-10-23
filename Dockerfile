@@ -8,7 +8,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY vite.config.ts ./
 COPY web ./web
-COPY lib/types.ts lib/api-types.ts ./lib/
+# The UI imports shared code and types from lib/ (e.g. job-attention.ts, api-types.ts).
+COPY lib ./lib
 RUN npm run build
 
 # The app. Multi-arch base (amd64, arm64) so the image also builds on 64-bit ARM NAS boxes.

@@ -6,9 +6,11 @@ updates:
     schedule:
       interval: "weekly"
 
-  # Base image in the Dockerfile (node:22-alpine)
+  # Base images: the app's Dockerfile and the CI image (both node:22-alpine)
   - package-ecosystem: "docker"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/ci"
     schedule:
       interval: "weekly"
 

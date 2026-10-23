@@ -257,6 +257,23 @@ Each preview item has the shape `{ rel, kind, newRel, target, status, match, mes
 
 Defaults are `{n} - {s00e00} - {t}` for episodes and `{n} ({y})` for movies. Unsafe characters are removed, `:` becomes ` - `, and empty `()`/`[]` from missing values are dropped. Subtitle language suffixes such as `.en.srt` are preserved.
 
+## Code layout
+
+| Path | Contents |
+| --- | --- |
+| `server.js` | Web server: request handling, login, startup and shutdown |
+| `bin/media-renamer.js` | CLI entry point; dispatches to `lib/cli/` |
+| `lib/renamer.js` | Public API of the rename engine; the parts live in `lib/rename/` (scan, preview, lock, undo journal, apply, undo) |
+| `lib/settings.js` | Public API of the settings; the parts live in `lib/settings/` (environment defaults, validation, saved file) |
+| `lib/server/` | Routes grouped by area (`routes/`), the import hook, static files, HTTP helpers and the folder policy |
+| `lib/cli/` | Help text, argument parsing, output formats, plans and the commands |
+| `lib/importer.js`, `lib/jobs.js` | Automatic import pipeline and the background job queue |
+| `lib/parse.js`, `lib/format.js`, `lib/metadata.js` | File-name parsing, naming patterns, TMDB/TVmaze lookups |
+| `lib/mover.js`, `lib/audio.js` | Safe moves across disks, and the Dolby Digital Plus audio fix |
+| `public/` | Web UI as plain ES modules: `app.js` wires up the page; `settings-form.js`, `file-table.js`, `job-panel.js`, `activity.js` and `picker.js` each own one part of it |
+
+New files in `public/` must be added to the list in `lib/server/static.js`; a test checks that every imported module is served.
+
 ## Tests
 
 ```bash

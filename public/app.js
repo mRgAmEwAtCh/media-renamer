@@ -1,221 +1,36 @@
 import { startActivity } from './activity.js';
+import { api } from './api.js';
+import { $, setStatus } from './dom.js';
+import { createFileTable, itemsFromScan } from './file-table.js';
+import { closeJobPanel, openJobPanel, reportJob, showConnectionProblem, showJob } from './job-panel.js';
 import { setupNotifications } from './notify.js';
 import { createFolderPicker } from './picker.js';
-import { breakable, fitHeight } from './text.js';
+import {
+  formFilters,
+  isDirty,
+  loadServerSettings,
+  previewOptions,
+  readLocal,
+  requestedTargets,
+  resetDefaults,
+  saveDefaults,
+  saveLocal,
+  syncTargetFields,
+  updateDefaultsStatus,
+} from './settings-form.js';
+import { selectedItems, state } from './state.js';
 
-const $ = (id) => document.getElementById(id);
-// The browser only remembers the last source folder; everything else is saved on the server.
-const LOCAL_KEY = 'media-renamer:settings';
-const RENAMABLE = new Set(['ok', 'warning', 'edited']);
-const KIND_LABEL = { episode: 'TV', movie: 'Movies' };
+const ACTIVE_STATES = ['queued', 'running', 'cancelling'];
 
-const state = {
-  root: '',
-  previewed: false,
-  previewTargets: null, // destinations requested for the current preview
-  items: [],
-  busy: false,
-  jobId: null,
-  savedSnapshot: null, // form settings as last loaded from / saved to the server
-  serverSaved: false,
-  savedAt: null,
-};
-
-async function api(path, body) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (response.status === 401) location.href = '/login';
-  if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status})`);
-  return data;
-}
-
-function setStatus(message, kind = '') {
-  const status = $('status');
-  status.textContent = message;
-  status.className = kind;
-}
-
-/* ---------- Settings: form <-> server ---------- */
-
-function readLocal() {
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL_KEY) ?? '{}');
-  } catch {
-    return {};
-  }
-}
-
-function saveLocal() {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify({ root: $('root').value.trim(), recursive: $('recursive').checked }));
-}
-
-function formSettings() {
-  return {
-    patterns: { episode: $('episodePattern').value, movie: $('moviePattern').value },
-    targets: { episode: $('tvTarget').value.trim() || null, movie: $('movieTarget').value.trim() || null },
-    move: $('moveEnabled').checked,
-    language: $('language').value.trim(),
-    region: $('region').value.trim().toUpperCase() || null,
-    filters: { videoOnly: $('videoOnly').checked, excludeSamples: $('excludeSamples').checked },
-    automation: {
-      enabled: $('autoEnabled').checked,
-      includeWarnings: $('autoWarnings').checked,
-      cleanupEmptyFolders: $('autoCleanup').checked,
-      audioFix: {
-        enabled: $('audioFixEnabled').checked,
-        episodes: $('audioFixEpisodes').checked,
-        languages: $('audioLanguages').value.split(',').map((code) => code.trim().toLowerCase()).filter(Boolean),
-        bitrate: $('audioBitrate').value,
-      },
-    },
-  };
-}
-
-function applySettings(settings) {
-  $('episodePattern').value = settings.patterns.episode;
-  $('moviePattern').value = settings.patterns.movie;
-  $('tvTarget').value = settings.targets.episode ?? '';
-  $('movieTarget').value = settings.targets.movie ?? '';
-  $('moveEnabled').checked = settings.move;
-  $('language').value = settings.language ?? '';
-  $('region').value = settings.region ?? '';
-  $('videoOnly').checked = settings.filters.videoOnly;
-  $('excludeSamples').checked = settings.filters.excludeSamples;
-  const automation = settings.automation;
-  $('autoEnabled').checked = automation.enabled;
-  $('autoWarnings').checked = automation.includeWarnings;
-  $('autoCleanup').checked = automation.cleanupEmptyFolders;
-  $('audioFixEnabled').checked = automation.audioFix.enabled;
-  $('audioFixEpisodes').checked = automation.audioFix.episodes;
-  $('audioLanguages').value = automation.audioFix.languages.join(', ');
-  if (![...$('audioBitrate').options].some((option) => option.value === automation.audioFix.bitrate)) {
-    $('audioBitrate').append(new Option(automation.audioFix.bitrate, automation.audioFix.bitrate));
-  }
-  $('audioBitrate').value = automation.audioFix.bitrate;
-  syncTargetFields();
-}
-
-function rememberSaved(response) {
-  applySettings(response.settings);
-  state.savedSnapshot = JSON.stringify(formSettings());
-  state.serverSaved = response.saved;
-  state.savedAt = response.savedAt;
-  updateDefaultsStatus();
-}
-
-const isDirty = () => state.savedSnapshot !== null && JSON.stringify(formSettings()) !== state.savedSnapshot;
-
-function updateDefaultsStatus() {
-  const status = $('defaultsStatus');
-  if (isDirty()) {
-    status.textContent = 'Unsaved changes. “Save as default” keeps them for all browsers and the CLI.';
-    status.className = 'hint dirty';
-  } else if (state.serverSaved) {
-    const when = state.savedAt ? ` (${new Date(state.savedAt).toLocaleString()})` : '';
-    status.textContent = `Using your saved defaults${when}.`;
-    status.className = 'hint';
-  } else {
-    status.textContent = 'Using the server’s defaults. Nothing saved yet.';
-    status.className = 'hint';
-  }
-  $('saveDefaults').disabled = state.busy || !isDirty();
-  $('resetDefaults').disabled = state.busy || !state.serverSaved;
-}
-
-async function loadServerSettings() {
-  try {
-    const response = await api('/api/settings', {});
-    rememberSaved(response);
-    $('tmdbStatus').textContent = response.tmdbConfigured
-      ? 'Movie lookups (TMDB): enabled by the server configuration.'
-      : 'Movie lookups (TMDB): disabled. Set TMDB_API_KEY in the server configuration to enable them.';
-    $('hookStatus').textContent = [
-      response.hookEnabled
-        ? 'The import hook is enabled (POST /api/hooks/extracted).'
-        : 'The import hook is disabled. Set MEDIA_RENAMER_HOOK_TOKEN on the server to enable it.',
-      response.audioToolsAvailable ? '' : 'ffmpeg is not installed, so audio tracks cannot be added.',
-    ]
-      .filter(Boolean)
-      .join(' ');
-    if (response.problems?.length) setStatus(`Saved settings problem: ${response.problems.join('; ')}`, 'error');
-    adoptLegacyBrowserSettings(response.saved);
-  } catch (error) {
-    $('tmdbStatus').textContent = `Could not read server settings: ${error.message}`;
-  }
-}
-
-/**
- * Earlier versions kept patterns and destinations in this browser only. Offer
- * them once (as unsaved changes) if nothing has been saved on the server yet.
- */
-function adoptLegacyBrowserSettings(serverHasSaved) {
-  const legacy = readLocal();
-  const hasLegacy = ['episodePattern', 'moviePattern', 'target', 'language'].some((key) => legacy[key]);
-  if (hasLegacy && !serverHasSaved) {
-    if (legacy.episodePattern) $('episodePattern').value = legacy.episodePattern;
-    if (legacy.moviePattern) $('moviePattern').value = legacy.moviePattern;
-    if (legacy.moveEnabled && legacy.target) {
-      $('moveEnabled').checked = true;
-      $('tvTarget').value = legacy.target;
-      $('movieTarget').value = legacy.target;
-    }
-    if (legacy.language) $('language').value = legacy.language;
-    if (legacy.region) $('region').value = legacy.region;
-    syncTargetFields();
-    updateDefaultsStatus();
-    setStatus('Loaded the settings this browser remembered. Click “Save as default” to keep them on the server.');
-  }
-  saveLocal(); // drop the legacy fields; only the source folder stays in the browser
-}
-
-async function saveDefaults() {
-  try {
-    rememberSaved(await api('/api/settings/save', { settings: formSettings() }));
-    setStatus('Saved as default. The web UI on every device and the CLI now use these settings.', 'success');
-  } catch (error) {
-    setStatus(`Not saved: ${error.message}`, 'error');
-  }
-}
-
-async function resetDefaults() {
-  if (!confirm('Forget the saved defaults and use the server’s configuration again?')) return;
-  try {
-    rememberSaved(await api('/api/settings/reset', {}));
-    setStatus('Saved defaults removed. Using the server’s configuration.', 'success');
-  } catch (error) {
-    setStatus(error.message, 'error');
-  }
-}
-
-/* ---------- Destinations ---------- */
-
-function syncTargetFields() {
-  for (const field of document.querySelectorAll('.target-field')) field.hidden = !$('moveEnabled').checked;
-}
-
-/** Destinations to request: none unless moving; an empty field renames that kind in place. */
-function requestedTargets() {
-  if (!$('moveEnabled').checked) return { episode: null, movie: null };
-  return { episode: $('tvTarget').value.trim() || null, movie: $('movieTarget').value.trim() || null };
-}
-
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sameTargets = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const targetChangedSincePreview = () => state.previewed && !sameTargets(requestedTargets(), state.previewTargets);
 
-function willChange(item) {
-  return item.newRel && (item.target || item.newRel !== item.rel);
-}
-
 function updateButtons() {
-  const hasFiles = state.items.length > 0;
-  const selected = state.items.filter((item) => item.selected && RENAMABLE.has(item.status) && willChange(item));
+  const selected = selectedItems();
   const stale = targetChangedSincePreview();
   for (const id of ['scan', 'browse', 'browseTvTarget', 'browseMovieTarget']) $(id).disabled = state.busy;
-  $('preview').disabled = state.busy || !hasFiles;
+  $('preview').disabled = state.busy || !state.items.length;
   $('apply').disabled = state.busy || !selected.length || stale;
   $('apply').textContent = selected.some((item) => item.target) ? 'Rename & move selected' : 'Rename selected';
   $('undo').disabled = state.busy || !state.root;
@@ -223,6 +38,9 @@ function updateButtons() {
   if (stale && !state.busy) setStatus('Destinations changed — preview again before renaming.', 'error');
 }
 
+const table = createFileTable({ onChange: updateButtons });
+
+/** Run a task with the buttons disabled; its error goes to the status line. */
 async function run(message, task) {
   state.busy = true;
   updateButtons();
@@ -237,113 +55,12 @@ async function run(message, task) {
   }
 }
 
-/* ---------- File table ---------- */
-
-function describeParsed(parsed) {
-  if (parsed.kind === 'episode') return `${parsed.title || '?'} · S${parsed.season}E${parsed.episode}`;
-  if (parsed.kind === 'movie') return `${parsed.title}${parsed.year ? ` (${parsed.year})` : ''}`;
-  return 'Not recognised';
-}
-
-function cell(text, className) {
-  const td = document.createElement('td');
-  if (className === 'path') td.append(breakable(text));
-  else td.textContent = text ?? '';
-  if (className) td.className = className;
-  return td;
-}
-
-const fitNameFields = () => document.querySelectorAll('#rows textarea').forEach(fitHeight);
-window.addEventListener('resize', fitNameFields);
-
-function render() {
-  const rows = $('rows');
-  rows.replaceChildren();
-  $('count').textContent = state.items.length ? `(${state.items.length})` : '';
-
-  if (!state.items.length) {
-    const row = document.createElement('tr');
-    const empty = cell('No media files found.', 'empty');
-    empty.colSpan = 5;
-    row.append(empty);
-    rows.append(row);
-  }
-
-  for (const item of state.items) {
-    const row = document.createElement('tr');
-    row.className = `status-${item.status}`;
-
-    const selectCell = document.createElement('td');
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = item.selected;
-    checkbox.disabled = !RENAMABLE.has(item.status);
-    checkbox.setAttribute('aria-label', `Select ${item.rel}`);
-    checkbox.addEventListener('change', () => {
-      item.selected = checkbox.checked;
-      updateButtons();
-    });
-    selectCell.append(checkbox);
-
-    const statusCell = cell(item.status, 'status');
-    statusCell.title = item.message ?? '';
-
-    const newNameCell = document.createElement('td');
-    if (item.newRel !== null && item.newRel !== undefined) {
-      // A one-line textarea, so long names wrap instead of being cut off.
-      const input = document.createElement('textarea');
-      input.rows = 1;
-      input.className = 'new-name';
-      input.value = item.newRel;
-      input.spellcheck = false;
-      input.setAttribute('aria-label', `New name for ${item.rel}`);
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') event.preventDefault();
-      });
-      input.addEventListener('input', () => {
-        if (/[\r\n]/.test(input.value)) input.value = input.value.replace(/[\r\n]+/g, ' ');
-        fitHeight(input);
-        Object.assign(item, { newRel: input.value.trim(), status: 'edited', message: 'Edited by hand', selected: true });
-        checkbox.disabled = false;
-        checkbox.checked = true;
-        row.className = 'status-edited';
-        statusCell.textContent = 'edited';
-        updateButtons();
-      });
-      const note = document.createElement('span');
-      note.className = 'target-note';
-      note.append(breakable(item.target ? `→ ${KIND_LABEL[item.kind] ?? ''} in ${item.target}` : 'renamed in place'));
-      newNameCell.append(input, note);
-    }
-
-    row.append(selectCell, cell(item.rel, 'path'), newNameCell, cell(item.match ?? item.message, 'match'), statusCell);
-    rows.append(row);
-  }
-  fitNameFields();
-  const renamable = state.items.filter((item) => RENAMABLE.has(item.status));
-  $('selectAll').checked = renamable.length > 0 && renamable.every((item) => item.selected);
-  $('selectAll').disabled = renamable.length === 0;
-  updateButtons();
-}
+/* ---------- Scan and preview ---------- */
 
 function showScan(data) {
-  state.root = data.root;
-  state.previewed = false;
-  state.previewTargets = null;
-  state.items = data.files.map((file) => ({
-    rel: file.rel,
-    kind: file.parsed.kind,
-    newRel: null,
-    target: null,
-    status: 'pending',
-    match: describeParsed(file.parsed),
-    message: null,
-    selected: false,
-  }));
-  render();
+  Object.assign(state, { root: data.root, previewed: false, previewTargets: null, items: itemsFromScan(data.files) });
+  table.render();
 }
-
-const filters = () => ({ videoOnly: $('videoOnly').checked, excludeSamples: $('excludeSamples').checked });
 
 function describeExcluded(excluded = {}) {
   const parts = [];
@@ -355,7 +72,7 @@ function describeExcluded(excluded = {}) {
 async function scan() {
   saveLocal();
   await run('Scanning…', async () => {
-    const data = await api('/api/scan', { root: $('root').value.trim(), recursive: $('recursive').checked, ...filters() });
+    const data = await api('/api/scan', { root: $('root').value.trim(), recursive: $('recursive').checked, ...formFilters() });
     showScan(data);
     setStatus(
       `Found ${data.files.length} media file(s)${data.truncated ? ' (list truncated)' : ''}.${describeExcluded(data.excluded)} Click “Preview names”.`,
@@ -364,7 +81,7 @@ async function scan() {
 }
 
 async function rescan() {
-  showScan(await api('/api/scan', { root: state.root, recursive: $('recursive').checked, ...filters() }));
+  showScan(await api('/api/scan', { root: state.root, recursive: $('recursive').checked, ...formFilters() }));
 }
 
 async function preview() {
@@ -374,19 +91,9 @@ async function preview() {
     return;
   }
   await run('Looking up metadata…', async () => {
-    const data = await api('/api/preview', {
-      root: state.root,
-      targets,
-      files: state.items.map((item) => item.rel),
-      patterns: { episode: $('episodePattern').value, movie: $('moviePattern').value },
-      ...filters(),
-      ...($('language').value.trim() && { language: $('language').value.trim() }),
-      region: $('region').value.trim() || null,
-    });
-    state.previewTargets = targets;
-    state.previewed = true;
-    state.items = data.items.map((item) => ({ ...item, selected: item.status === 'ok' }));
-    render();
+    const data = await api('/api/preview', { root: state.root, targets, files: state.items.map((item) => item.rel), ...previewOptions() });
+    Object.assign(state, { previewTargets: targets, previewed: true, items: data.items.map((item) => ({ ...item, selected: item.status === 'ok' })) });
+    table.render();
     const ready = state.items.filter((item) => item.selected);
     const moving = ['episode', 'movie']
       .map((kind) => [kind, ready.filter((item) => item.kind === kind && item.target).length])
@@ -396,95 +103,16 @@ async function preview() {
   });
 }
 
-/* ---------- Jobs ---------- */
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function formatBytes(bytes) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-function formatDuration(seconds) {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '';
-  if (seconds < 90) return `${Math.ceil(seconds)} s`;
-  if (seconds < 5400) return `${Math.ceil(seconds / 60)} min`;
-  return `${(seconds / 3600).toFixed(1)} h`;
-}
-
-const rate = { since: 0, bytes: 0 };
-const listTargets = (targets) => (targets?.length ? targets.join(' and ') : '');
-
-function showJob(job) {
-  const p = job.progress;
-  const moving = job.kind === 'apply' ? (job.targets?.length ? 'Moving' : 'Renaming') : 'Undoing';
-  $('jobTitle').textContent =
-    job.state === 'cancelling'
-      ? 'Cancelling…'
-      : job.state === 'queued'
-        ? `Waiting for another job to finish${job.queuePosition ? ` (position ${job.queuePosition})` : ''}…`
-        : `${moving} files…`;
-  $('jobCancel').disabled = !['running', 'queued'].includes(job.state);
-
-  const doneBytes = p.bytesDone + (p.current?.bytesDone ?? 0);
-  const now = Date.now();
-  if (!rate.since) Object.assign(rate, { since: now, bytes: doneBytes });
-  const seconds = (now - rate.since) / 1000;
-  const speed = seconds > 2 ? (doneBytes - rate.bytes) / seconds : 0;
-  const eta = speed > 0 ? formatDuration((p.bytesTotal - doneBytes) / speed) : '';
-
-  const parts = [`${p.filesDone} of ${p.filesTotal} file(s)`];
-  if (p.bytesTotal) parts.push(`${formatBytes(doneBytes)} of ${formatBytes(p.bytesTotal)}`);
-  if (speed > 0) parts.push(`${formatBytes(speed)}/s`);
-  if (eta) parts.push(`about ${eta} left`);
-  $('jobOverallLabel').textContent = parts.join(' · ');
-  $('jobOverall').max = p.bytesTotal || p.filesTotal || 1;
-  $('jobOverall').value = p.bytesTotal ? doneBytes : p.filesDone;
-
-  $('jobCurrent').textContent = p.current ? `${p.current.from} → ${p.current.to}` : '';
-  $('jobFile').hidden = !p.current;
-  if (p.current) {
-    $('jobFile').max = p.current.bytesTotal || 1;
-    $('jobFile').value = p.current.bytesDone;
-  }
-}
-
-function reportJob(job) {
-  const r = job.result;
-  if (job.state === 'failed') return setStatus(job.error ?? 'The job failed.', 'error');
-  if (job.kind === 'apply') {
-    const verb = r.targets?.length ? `Moved ${r.renamed} file(s) to ${listTargets(r.targets)}` : `Renamed ${r.renamed} file(s)`;
-    const failed = r.failed?.length ? ` ${r.failed.length} failed: ${r.failed.map((f) => `${f.from} (${f.reason})`).join('; ')}.` : '';
-    if (r.cancelled) {
-      return setStatus(`Cancelled. ${verb}; the file in progress was left where it was.${failed} “Undo last batch” reverts the completed ones.`, 'error');
-    }
-    return setStatus(`${verb}.${failed} Use “Undo last batch” to revert.`, failed ? 'error' : 'success');
-  }
-  const from = r.targets?.length ? ` from ${listTargets(r.targets)}` : '';
-  const skipped = r.skipped?.length ? ` Skipped ${r.skipped.length}: ${r.skipped.map((s) => `${s.from} (${s.reason})`).join('; ')}.` : '';
-  const remaining = r.remaining ? ` ${r.remaining} file(s) still to restore — run “Undo last batch” again.` : '';
-  return setStatus(`${r.cancelled ? 'Undo cancelled. ' : ''}Restored ${r.restored} file(s)${from}.${skipped}${remaining}`, skipped || remaining ? 'error' : 'success');
-}
+/* ---------- Rename, undo and job progress ---------- */
 
 /** Show a server-side job until it ends; survives page reloads and brief disconnects. */
 async function followJob(job) {
-  state.busy = true;
-  state.jobId = job.id;
-  Object.assign(rate, { since: 0, bytes: 0 });
-  for (const bar of ['jobOverall', 'jobFile']) $(bar).value = 0;
-  $('jobOverallLabel').textContent = 'Starting…';
-  $('jobCurrent').textContent = '';
-  $('jobPanel').hidden = false;
+  Object.assign(state, { busy: true, jobId: job.id });
+  openJobPanel();
   setStatus('');
   updateButtons();
   showJob(job);
-  while (['queued', 'running', 'cancelling'].includes(job.state)) {
+  while (ACTIVE_STATES.includes(job.state)) {
     await sleep(700);
     try {
       const latest = (await api('/api/job', { id: job.id })).job;
@@ -492,13 +120,12 @@ async function followJob(job) {
       job = latest;
       showJob(job);
     } catch (error) {
-      $('jobOverallLabel').textContent = `Lost contact with the server (${error.message}); retrying…`;
+      showConnectionProblem(error);
       await sleep(2000);
     }
   }
-  $('jobPanel').hidden = true;
-  state.busy = false;
-  state.jobId = null;
+  closeJobPanel();
+  Object.assign(state, { busy: false, jobId: null });
   if (job.result || job.state === 'failed') reportJob(job);
   else setStatus('The server restarted during the job. Completed moves are in the undo log.', 'error');
   if (state.root) await rescan().catch(() => {});
@@ -506,27 +133,28 @@ async function followJob(job) {
   updateButtons();
 }
 
-async function apply() {
-  const selected = state.items.filter((item) => item.selected && RENAMABLE.has(item.status) && willChange(item));
-  const renames = selected.map((item) => ({ from: item.rel, to: item.newRel, target: item.target ?? null }));
-  const byTarget = Object.entries(Object.groupBy(selected, (item) => item.target ?? '')).map(([target, list]) =>
-    target ? `${list.length} into ${target}` : `${list.length} in place`,
-  );
-  if (!renames.length || !confirm(`Rename ${renames.length} file(s): ${byTarget.join(', ')}?`)) return;
+/** Start a job on the server and follow it; errors starting it go to the status line. */
+async function startJob(path, body) {
   try {
-    await followJob(await api('/api/apply', { root: state.root, renames }));
+    await followJob(await api(path, body));
   } catch (error) {
     setStatus(error.message, 'error');
   }
 }
 
+async function apply() {
+  const selected = selectedItems();
+  const renames = selected.map((item) => ({ from: item.rel, to: item.newRel, target: item.target ?? null }));
+  const byTarget = Object.entries(Object.groupBy(selected, (item) => item.target ?? '')).map(([target, list]) =>
+    target ? `${list.length} into ${target}` : `${list.length} in place`,
+  );
+  if (!renames.length || !confirm(`Rename ${renames.length} file(s): ${byTarget.join(', ')}?`)) return;
+  await startJob('/api/apply', { root: state.root, renames });
+}
+
 async function undo() {
   if (!confirm('Undo the last rename batch in this folder?')) return;
-  try {
-    await followJob(await api('/api/undo', { root: state.root }));
-  } catch (error) {
-    setStatus(error.message, 'error');
-  }
+  await startJob('/api/undo', { root: state.root });
 }
 
 async function cancelJob() {
@@ -542,7 +170,7 @@ async function cancelJob() {
 async function resumeRunningJob() {
   try {
     const { job } = await api('/api/job', {});
-    if (job && job.source === 'web UI' && ['queued', 'running', 'cancelling'].includes(job.state)) {
+    if (job && job.source === 'web UI' && ACTIVE_STATES.includes(job.state)) {
       state.root = job.root;
       await followJob(job);
     }
@@ -612,10 +240,6 @@ $('undo').addEventListener('click', undo);
 $('jobCancel').addEventListener('click', cancelJob);
 $('saveDefaults').addEventListener('click', saveDefaults);
 $('resetDefaults').addEventListener('click', resetDefaults);
-$('selectAll').addEventListener('change', (event) => {
-  for (const item of state.items) if (RENAMABLE.has(item.status)) item.selected = event.target.checked;
-  render();
-});
 window.addEventListener('beforeunload', (event) => {
   if (isDirty()) event.preventDefault();
 });

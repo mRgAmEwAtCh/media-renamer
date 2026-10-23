@@ -1,10 +1,6 @@
+import { element } from './dom.js';
+import { formatBytes } from './format.js';
 import { breakable } from './text.js';
-
-const element = (tag, props = {}, ...children) => {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children.filter((child) => child !== null && child !== undefined && child !== false));
-  return node;
-};
 
 const STATE_LABEL = {
   queued: 'Waiting',
@@ -26,17 +22,6 @@ const OUTCOME_LABEL = {
   'not processed': 'Not processed',
 };
 const ACTIVE = new Set(['queued', 'running', 'cancelling']);
-
-function formatBytes(bytes) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
 
 const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString() : '');

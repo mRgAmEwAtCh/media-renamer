@@ -6,11 +6,11 @@ Rename movie and TV episode files from public metadata and optionally move them 
 - **Movies** are matched on [TMDB](https://developer.themoviedb.org/) with an API key from the server configuration. Without a key, movies keep the name and year parsed from the file name and are marked as warnings.
 - Every rename is previewed first and validated to stay inside the allowed folders. A batch is applied all-or-nothing and recorded in `<source>/.media-renamer-undo.json` so it can be undone.
 
-Requires Node.js 22 or newer and has no npm dependencies.
+Requires Node.js 26 or newer and has no npm dependencies.
 
 ## Deploy on openmediavault (Docker)
 
-The image is multi-arch (x86-64 and ARM, e.g. Raspberry Pi). It runs as an unprivileged user with a read-only filesystem and no capabilities, and contains no secrets.
+The image is multi-arch for 64-bit systems: x86-64 and ARM64 (e.g. a Raspberry Pi with a 64-bit OS). 32-bit ARM (`arm/v7`) is not supported because Node.js 26 no longer provides it. It runs as an unprivileged user with a read-only filesystem and no capabilities, and contains no secrets.
 
 1. Clone the repository on the NAS, e.g. `git clone https://github.com/mRgAmEwAtCh/media-renamer.git /srv/dev-disk-by-uuid-…/appdata/media-renamer`.
 2. Create `.env` next to `compose.yaml` from `.env.example` and fill in:
@@ -35,7 +35,7 @@ The image is multi-arch (x86-64 and ARM, e.g. Raspberry Pi). It runs as an unpri
 
 **Updating:** with the prebuilt image, `docker compose pull && docker compose up -d`; when building locally, `git pull && docker compose up -d --build`. Your `.env` and `config/` are not tracked by git, so updates never touch them.
 
-**Releases:** pushing a tag such as `v0.9` or `v1.10` runs the tests and publishes the image as `0.9` / `1.10` and `latest` for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. Every push to `main` publishes `main`.
+**Releases:** pushing a tag such as `v0.9` or `v1.10` runs the tests and publishes the image as `0.9` / `1.10` and `latest` for `linux/amd64` and `linux/arm64`. Every push to `main` publishes `main`.
 
 The CLI is available inside the container and uses the same configuration:
 

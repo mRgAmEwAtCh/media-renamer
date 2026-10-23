@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    # Node 22 + ffmpeg/ffprobe (without them the audio-fix tests are skipped).
+    # Node 26 + ffmpeg/ffprobe (without them the audio-fix tests are skipped).
     # Built by ci-image.yml from .github/ci/Dockerfile.
     container:
       image: ghcr.io/mrgamewatch/media-renamer-ci:latest
@@ -110,7 +110,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

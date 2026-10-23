@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# Multi-arch base (amd64, arm64, arm/v7) so the image also builds on ARM NAS boxes.
-FROM node:22-alpine
+# Multi-arch base (amd64, arm64) so the image also builds on 64-bit ARM NAS boxes.
+FROM node:26-alpine
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

@@ -10,3 +10,4 @@ config/
 id_*
 *.pem
 *.key
+dist/

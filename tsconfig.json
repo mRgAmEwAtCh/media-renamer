@@ -17,5 +17,5 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true
   },
-  "include": ["server.ts", "bin/**/*.ts", "lib/**/*.ts"]
+  "include": ["server.ts", "bin/**/*.ts", "lib/**/*.ts", "vite.config.ts"]
 }

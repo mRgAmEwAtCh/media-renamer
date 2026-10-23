@@ -1,6 +1,7 @@
 import { InputError } from '../../errors.ts';
 import { applyRenames, undoLast } from '../../renamer.ts';
 import type { JobControl, RenameRequest } from '../../types.ts';
+import type { ApiResponse } from '../../api-types.ts';
 import type { RouteContext } from '../context.ts';
 import type { RequestBody, Routes } from '../http.ts';
 
@@ -27,7 +28,7 @@ export function jobRoutes({ jobs, policy, allowedRoot, allowedTarget }: RouteCon
   }
 
   return {
-    async '/api/apply'(body: RequestBody) {
+    async '/api/apply'(body: RequestBody): Promise<ApiResponse<'/api/apply'>> {
       const root = await allowedRoot(body.root);
       if (!Array.isArray(body.renames) || body.renames.length === 0) throw new InputError('Nothing to rename');
       const renames = await resolveRenames(root, body);
@@ -41,7 +42,7 @@ export function jobRoutes({ jobs, policy, allowedRoot, allowedTarget }: RouteCon
       });
     },
 
-    async '/api/undo'(body: RequestBody) {
+    async '/api/undo'(body: RequestBody): Promise<ApiResponse<'/api/undo'>> {
       const root = await allowedRoot(body.root);
       return jobs.start({
         kind: 'undo',
@@ -51,20 +52,20 @@ export function jobRoutes({ jobs, policy, allowedRoot, allowedTarget }: RouteCon
       });
     },
 
-    async '/api/job'(body: RequestBody) {
+    async '/api/job'(body: RequestBody): Promise<ApiResponse<'/api/job'>> {
       return { job: jobs.get(typeof body.id === 'string' ? body.id : null) };
     },
 
-    async '/api/jobs'() {
+    async '/api/jobs'(): Promise<ApiResponse<'/api/jobs'>> {
       return { jobs: jobs.list() };
     },
 
-    async '/api/job/cancel'(body: RequestBody) {
+    async '/api/job/cancel'(body: RequestBody): Promise<ApiResponse<'/api/job/cancel'>> {
       if (typeof body.id !== 'string') throw new InputError('Job id required');
       return { job: jobs.cancel(body.id) };
     },
 
-    async '/api/jobs/clear'() {
+    async '/api/jobs/clear'(): Promise<ApiResponse<'/api/jobs/clear'>> {
       return { removed: await jobs.clear() };
     },
   };

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
 import { InputError } from './errors.ts';
-import { writeFileAtomic } from './fs-utils.ts';
+import { JobStore } from './job-store.ts';
 import type { JobControl, JobKind, JobRunner, JobSnapshot, JobState, Progress, StepDefinition, StepPatch, ImportRow } from './types.ts';
 
 /** A job inside the manager: the snapshot fields plus runtime state that is never saved or sent. */
@@ -44,7 +43,6 @@ interface NewJobFields {
 }
 
 const KEEP_FINISHED = 50;
-const SAVE_DELAY_MS = 1000;
 const ACTIVE_STATES = new Set<JobState>(['queued', 'running', 'cancelling']);
 
 /**
@@ -67,12 +65,9 @@ export class JobManager {
   queue: Job[];
   active: Job | null;
   shuttingDown: boolean;
-  storeFile: string | null;
+  store: JobStore | null;
   resume?: JobResumer | null;
   keep: number;
-  saveTimer: ReturnType<typeof setTimeout> | null;
-  saveWarned: boolean;
-  declare saving?: Promise<void>;
   declare onFinish?: (job: JobSnapshot) => unknown;
 
   constructor({ storeFile = null, resume = null, keep = KEEP_FINISHED }: JobManagerOptions = {}) {
@@ -80,11 +75,9 @@ export class JobManager {
     this.queue = [];
     this.active = null;
     this.shuttingDown = false;
-    this.storeFile = storeFile;
+    this.store = storeFile ? new JobStore(storeFile, () => [...this.jobs.values()].map((job) => this.snapshot(job))) : null;
     this.resume = resume;
     this.keep = keep;
-    this.saveTimer = null;
-    this.saveWarned = false;
   }
 
   start({ kind, root, targets = [], params = {}, label = null, source = 'web UI', run }: StartJobOptions): JobSnapshot {
@@ -250,19 +243,9 @@ export class JobManager {
 
   /** Load history and re-queue jobs that were waiting or cut off by a restart. */
   async restore(): Promise<void> {
-    if (!this.storeFile) return;
-    let stored: unknown;
-    try {
-      stored = JSON.parse(await fs.readFile(this.storeFile, 'utf8'));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.error(`Ignoring unreadable job history ${this.storeFile}: ${(error as Error).message}`);
-      }
-      return;
-    }
-    if (!Array.isArray(stored)) return;
-    // The store is written by writeStore; entries are trusted to be job snapshots.
-    for (const saved of stored as (JobSnapshot | null)[]) {
+    const stored = await this.store?.read();
+    if (!stored) return;
+    for (const saved of stored) {
       if (!saved?.id || this.jobs.has(saved.id)) continue;
       const job = { ...this.createJob(saved), ...saved };
       if (ACTIVE_STATES.has(job.state) || job.state === 'interrupted') {
@@ -286,33 +269,12 @@ export class JobManager {
   }
 
   saveSoon(): void {
-    if (!this.storeFile || this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null;
-      this.save();
-    }, SAVE_DELAY_MS);
-    this.saveTimer.unref();
+    this.store?.saveSoon();
   }
 
-  /** Saves run one after another; each writes the state at the time it runs, so the newest always wins. */
+  /** Write the history now (when there is a store file). */
   save(): Promise<void> {
-    if (!this.storeFile) return Promise.resolve();
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    this.saving = (this.saving ?? Promise.resolve()).then(() => this.writeStore());
-    return this.saving;
-  }
-
-  async writeStore(): Promise<void> {
-    const jobs = [...this.jobs.values()].map((job) => this.snapshot(job));
-    try {
-      await writeFileAtomic(this.storeFile!, `${JSON.stringify(jobs)}\n`, { mkdir: true });
-    } catch (error) {
-      if (!this.saveWarned) console.error(`Cannot save job history to ${this.storeFile}: ${(error as Error).message}`);
-      this.saveWarned = true;
-    }
+    return this.store?.save() ?? Promise.resolve();
   }
 
   snapshot(job: Job, { summary = false }: { summary?: boolean } = {}): JobSnapshot {

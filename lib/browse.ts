@@ -3,35 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { isMediaFile } from './parse.ts';
 import { InputError } from './errors.ts';
+import type { Breadcrumb, DirectoryListing, FolderEntry, Place, PlaceKind } from './api-types.ts';
 
-export interface FolderEntry {
-  name: string;
-  path: string;
-}
+export type { Breadcrumb, DirectoryListing, FolderEntry, Place, PlaceKind };
 
-export type PlaceKind = 'home' | 'folder' | 'drive' | 'volume';
-
-export interface Place {
-  label: string;
-  path: string;
-  kind: PlaceKind;
-}
-
-export interface Breadcrumb {
-  label: string;
-  path: string;
-}
-
-/** What listDirectory returns for one folder. */
-export interface DirectoryListing {
-  path: string;
-  parent: string | null;
-  separator: string;
-  breadcrumbs: Breadcrumb[];
-  folders: FolderEntry[];
-  truncated: boolean;
-  mediaFiles: number;
-}
 
 const MAX_FOLDERS = 5000;
 const PROBE_TIMEOUT_MS = 1500;

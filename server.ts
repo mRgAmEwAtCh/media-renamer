@@ -21,7 +21,7 @@ import { jobRoutes } from './lib/server/routes/jobs.ts';
 import { pushRoutes } from './lib/server/routes/push.ts';
 import { settingsRoutes } from './lib/server/routes/settings.ts';
 import { logSettings, logStartup } from './lib/server/startup.ts';
-import { isPublicFile, isStaticFile, serveStatic } from './lib/server/static.ts';
+import { createWebFiles } from './lib/server/static.ts';
 
 /** The HTTP server, with its job queue so callers (and tests) can reach it. */
 export type MediaRenamerServer = http.Server & { jobs: JobManager };
@@ -30,6 +30,8 @@ export interface ServerOptions {
   jobs?: JobManager;
   createMetadata?: MetadataFactory;
   push?: Push;
+  /** The built web UI (default: dist/web). */
+  webDir?: string;
 }
 
 function fail(response: ServerResponse, error: unknown): void {
@@ -40,11 +42,12 @@ function fail(response: ServerResponse, error: unknown): void {
 
 export function createServer(
   config: Config,
-  { jobs = new JobManager(), createMetadata = (options) => new MetadataClient(options), push = new Push(config.pushFile) }: ServerOptions = {},
+  { jobs = new JobManager(), createMetadata = (options) => new MetadataClient(options), push = new Push(config.pushFile), webDir }: ServerOptions = {},
 ): MediaRenamerServer {
   const context = createContext(config, { jobs, createMetadata, push });
   const routes: Routes = { ...settingsRoutes(context), ...fileRoutes(context), ...jobRoutes(context), ...pushRoutes(context) };
   const { hook, resume } = createHook(context);
+  const web = createWebFiles(webDir);
   jobs.resume ??= resume;
   jobs.onFinish ??= async (job) => {
     const message = actionNeeded(job);
@@ -72,14 +75,18 @@ export function createServer(
       return send(response, 202, await hook(request));
     }
     if (config.password && pathname === '/api/login' && method === 'POST') return login(request, response);
+    const file = method === 'GET' ? await web.find(pathname) : null;
+    if (!file && method === 'GET' && (pathname === '/' || pathname === '/login')) {
+      return send(response, 503, { error: 'The web UI is not built yet. Run "npm run build".' });
+    }
     if (config.password && !isAuthenticated(request, config.password)) {
-      if (method === 'GET' && isPublicFile(pathname)) return serveStatic(response, pathname);
+      if (file?.isPublic) return web.serve(response, file);
       if (method === 'GET' && pathname === '/') return redirect(response, '/login');
       return send(response, 401, { error: 'Login required' });
     }
     if (pathname === '/login') return redirect(response, '/');
 
-    if (method === 'GET' && isStaticFile(pathname)) return serveStatic(response, pathname);
+    if (file) return web.serve(response, file);
     if (method === 'POST' && Object.hasOwn(routes, pathname)) return send(response, 200, await routes[pathname](await readJson(request)));
     return send(response, 404, { error: 'Not found' });
   }

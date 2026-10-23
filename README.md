@@ -6,7 +6,7 @@ Rename movie and TV episode files from public metadata and optionally move them 
 - **Movies** are matched on [TMDB](https://developer.themoviedb.org/) with an API key from the server configuration. Without a key, movies keep the name and year parsed from the file name and are marked as warnings.
 - Every rename is previewed first and validated to stay inside the allowed folders. A batch is applied all-or-nothing and recorded in `<source>/.media-renamer-undo.json` so it can be undone.
 
-Requires Node.js 26 or newer and has no runtime npm dependencies. The backend is written in TypeScript, which Node 26 runs directly, so there is no build step.
+Requires Node.js 26 or newer. The server has no runtime npm dependencies: it is written in TypeScript, which Node 26 runs directly. The web UI is React 19, built once with Vite (`npm ci && npm run build`); the Docker image does this for you.
 
 ## Deploy on openmediavault (Docker)
 
@@ -166,9 +166,12 @@ The options are in the web UI under **Automatic import** (saved with **Save as d
 ## Web app
 
 ```bash
+npm ci && npm run build        # once, and after changing web/: builds the web UI into dist/web
 npm start                      # or: node bin/media-renamer.ts serve --port 4173
 open http://127.0.0.1:4173/
 ```
+
+While working on the web UI, run `npm start` and `npm run dev` side by side and open the address Vite prints: it reloads on every change and forwards API calls to the server on port 4173. Restart `npm start` after a new `npm run build`, since the server indexes the build once.
 
 1. Click **Browse…** to choose the folder to rename, or type a path. Choosing a folder starts the scan.
 2. Under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save as default** keeps these settings for next time.
@@ -267,23 +270,27 @@ Defaults are `{n} - {s00e00} - {t}` for episodes and `{n} ({y})` for movies. Uns
 | `lib/settings.ts` | Public API of the settings; the parts live in `lib/settings/` (environment defaults, validation, saved file) |
 | `lib/server/` | Routes grouped by area (`routes/`), the import hook, static files, HTTP helpers and the folder policy |
 | `lib/cli/` | Help text, argument parsing, output formats, plans and the commands |
-| `lib/types.ts` | Shared data types: settings, preview items, jobs, the undo journal |
+| `lib/types.ts`, `lib/job-types.ts` | Shared data types: settings, preview items, the undo journal; jobs and imports |
+| `lib/api-types.ts` | The HTTP API: request and response of every `/api/…` route, used by the server and the web UI |
 | `lib/importer.ts`, `lib/jobs.ts` | Automatic import pipeline and the background job queue |
 | `lib/parse.ts`, `lib/format.ts`, `lib/metadata.ts` | File-name parsing, naming patterns, TMDB/TVmaze lookups |
 | `lib/mover.ts`, `lib/audio.ts` | Safe moves across disks, and the Dolby Digital Plus audio fix |
-| `public/` | Web UI as plain ES modules: `app.js` wires up the page; `settings-form.js`, `file-table.js`, `job-panel.js`, `activity.js` and `picker.js` each own one part of it |
+| `web/` | Web UI (React 19, Vite): `index.html` and `login.html`; `public/` holds icons, the manifest and the service worker, copied as they are |
+| `web/src/` | `App.tsx` lays out the page; `hooks/` hold the logic (settings form, rename workflow, activity polling, notifications) and `components/` the panels, file table and folder picker |
+| `vite.config.ts` | Builds `web/` into `dist/web` |
 
-New files in `public/` must be added to the list in `lib/server/static.ts`; a test checks that every imported module is served.
+The server serves only the files in `dist/web`. The login page, the files it needs (read from Vite's manifest) and the top-level files from `web/public` load without logging in; everything else requires it.
 
 ## Tests
 
 ```bash
-npm ci                 # installs TypeScript for type checking (dev dependency only)
-npm run typecheck      # tsc --noEmit over server.ts, bin/ and lib/
+npm ci                 # dev tools: TypeScript, Vite, React
+npm run typecheck      # tsc over the backend (tsconfig.json) and the web UI (web/tsconfig.json)
+npm run build          # the web UI
 npm test
 ```
 
-The backend only uses TypeScript syntax that Node can strip (no `enum`, `namespace` or constructor parameter properties; `erasableSyntaxOnly` enforces this). Relative imports keep their `.ts` extension.
+The tests don't need a build: they serve a small stand-in (`test/web-fixture.js`). The backend only uses TypeScript syntax that Node can strip (no `enum`, `namespace` or constructor parameter properties; `erasableSyntaxOnly` enforces this). Relative imports keep their `.ts` extension.
 
 Tests replace metadata lookups with fakes and use temporary folders, so they make no network calls. They cover parsing, patterns, moves and the cross-device fallback, the CLI, configuration, and the server's authentication, Host check and folder confinement.
 

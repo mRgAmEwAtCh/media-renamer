@@ -1,38 +1,47 @@
 import './isolated-config.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { isPublicFile, isStaticFile } from '../lib/server/static.ts';
+import { createWebFiles } from '../lib/server/static.ts';
+import { createWebFixture, FIXTURE } from './web-fixture.js';
 
-const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+test('serves the pages and build output, with the login page and home-screen files public', async () => {
+  const web = createWebFiles(await createWebFixture());
+  const find = (pathname) => web.find(pathname);
 
-/** Every script a page loads, plus every module those scripts import (transitively). */
-async function browserScripts() {
-  const found = new Set();
-  const pending = [];
-  for (const page of ['index.html', 'login.html']) {
-    const html = await fs.readFile(path.join(PUBLIC_DIR, page), 'utf8');
-    for (const [, src] of html.matchAll(/<script[^>]*\ssrc="\/([^"]+)"/g)) pending.push(src);
+  for (const pathname of ['/login', FIXTURE.loginChunk, FIXTURE.sharedChunk, FIXTURE.css, '/manifest.webmanifest', '/icon-192.png', '/sw.js']) {
+    assert.equal((await find(pathname))?.isPublic, true, pathname);
   }
-  while (pending.length) {
-    const file = pending.pop();
-    if (found.has(file)) continue;
-    found.add(file);
-    const source = await fs.readFile(path.join(PUBLIC_DIR, file), 'utf8');
-    for (const [, spec] of source.matchAll(/^import\s[^'"]*['"]\.\/([^'"]+)['"]/gm)) pending.push(spec);
+  for (const pathname of ['/', FIXTURE.appChunk]) {
+    const file = await find(pathname);
+    assert.ok(file, pathname);
+    assert.equal(file.isPublic, false, pathname);
   }
-  return [...found];
-}
-
-test('the server serves every module the pages load', async () => {
-  const scripts = await browserScripts();
-  assert.ok(scripts.includes('app.js') && scripts.includes('login.js'));
-  for (const file of scripts) assert.ok(isStaticFile(`/${file}`), `/${file} is imported by the web UI but not served`);
+  assert.equal((await find(FIXTURE.appChunk)).immutable, true);
+  assert.equal((await find('/icon.svg')).immutable, false);
+  assert.equal((await find('/manifest.webmanifest')).type, 'application/manifest+json; charset=utf-8');
 });
 
-test('only the login page and home-screen assets load without logging in', () => {
-  for (const pathname of ['/login', '/login.js', '/style.css', '/manifest.webmanifest', '/icon-192.png']) assert.ok(isPublicFile(pathname), pathname);
-  for (const pathname of ['/', '/app.js', '/api.js', '/settings-form.js']) assert.ok(!isPublicFile(pathname), pathname);
+test('serves nothing else: no page under its file name, no manifest, no unknown paths', async () => {
+  const web = createWebFiles(await createWebFixture());
+  for (const pathname of ['/index.html', '/login.html', '/.vite/manifest.json', '/assets/missing.js', '/../package.json', '/assets']) {
+    assert.equal(await web.find(pathname), null, pathname);
+  }
+});
+
+test('a missing build serves nothing until it appears', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mr-web-empty-'));
+  const web = createWebFiles(dir);
+  assert.equal(await web.find('/'), null);
+  await fs.cp(await createWebFixture(), dir, { recursive: true });
+  assert.ok(await web.find('/'));
+});
+
+test('every file in web/public is served without login', async () => {
+  const web = createWebFiles(await createWebFixture());
+  for (const name of await fs.readdir(path.resolve(import.meta.dirname, '../web/public'))) {
+    assert.equal((await web.find(`/${name}`))?.isPublic, true, name);
+  }
 });

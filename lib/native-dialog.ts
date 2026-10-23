@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { InputError } from './errors.ts';
+import type { PickFolderResult } from './api-types.ts';
 
 export type FindExecutable = (name: string, env: NodeJS.ProcessEnv) => Promise<string | null>;
 
@@ -40,7 +41,7 @@ export interface PickFolderOptions {
   run?: (spec: DialogCommand) => Promise<DialogRunResult>;
 }
 
-export type PickFolderResult = { path: string; cancelled?: undefined } | { cancelled: true; path?: undefined };
+export type { PickFolderResult };
 
 const TITLE = 'Choose a media folder';
 const DIALOG_TIMEOUT_MS = 10 * 60 * 1000;

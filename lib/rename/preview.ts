@@ -4,9 +4,9 @@ import { DEFAULT_FILTERS, DEFAULT_PATTERNS, MAX_FILES } from '../defaults.ts';
 import { InputError } from '../errors.ts';
 import { renderPattern, validatePattern } from '../format.ts';
 import type { PatternValues } from '../format.ts';
-import { exists } from '../fs-utils.ts';
+import { lstatIfExists } from '../fs-utils.ts';
 import { resolveInside, toRootRelative } from '../paths.ts';
-import type { Filters, ItemStatus, MediaKind, MetadataSource, ParsedKind, ParsedMedia, Patterns, PreviewItem, Targets } from '../types.ts';
+import type { ConflictReason, Filters, ItemStatus, MediaKind, MetadataSource, ParsedKind, ParsedMedia, Patterns, PreviewItem, Targets } from '../types.ts';
 import { filterReason, parseRelativePath } from './scan.ts';
 
 /** Pattern values for one file plus how they were found. */
@@ -81,9 +81,23 @@ async function describe(
   return item;
 }
 
-/** Mark items that are already named correctly or that collide with each other or an existing file. */
+const CONFLICT_MESSAGES: Record<ConflictReason, string> = {
+  duplicate: 'Another file maps to the same name',
+  exists: 'A file with the new name already exists',
+};
+
+/** Mark an item as a conflict, keeping what it was before so the UI can restore it once resolved. */
+function markConflict(item: PreviewItem, reason: ConflictReason): void {
+  item.conflict = { reason, status: item.status, message: item.message };
+  Object.assign(item, { status: 'conflict', message: CONFLICT_MESSAGES[reason] });
+}
+
+/**
+ * Mark items that are already named correctly or that collide with each other
+ * or with an existing file. Items whose new name is taken get `existingSize`.
+ */
 async function markConflicts(root: string, items: PreviewItem[]): Promise<void> {
-  const byTarget = new Map<string, PreviewItem>();
+  const byTarget = new Map<string, PreviewItem[]>();
   for (const item of items) {
     if (!item.newRel || !['ok', 'warning'].includes(item.status)) continue;
     const destination = item.target ?? root;
@@ -93,16 +107,15 @@ async function markConflicts(root: string, items: PreviewItem[]): Promise<void> 
       continue;
     }
     const key = `${destination}\0${item.newRel.toLowerCase()}`;
-    if (byTarget.has(key)) {
-      for (const duplicate of [byTarget.get(key)!, item]) {
-        Object.assign(duplicate, { status: 'conflict', message: 'Another file maps to the same name' });
-      }
-      continue;
-    }
-    byTarget.set(key, item);
+    byTarget.set(key, [...(byTarget.get(key) ?? []), item]);
     const caseOnly = sameRoot && item.rel.toLowerCase() === item.newRel.toLowerCase();
-    if (!caseOnly && (await exists(resolveInside(destination, item.newRel)))) {
-      Object.assign(item, { status: 'conflict', message: 'A file with the new name already exists' });
+    const existing = caseOnly ? null : await lstatIfExists(resolveInside(destination, item.newRel));
+    if (existing) item.existingSize = existing.size;
+  }
+  for (const group of byTarget.values()) {
+    for (const item of group) {
+      if (group.length > 1) markConflict(item, 'duplicate');
+      else if (item.existingSize !== undefined) markConflict(item, 'exists');
     }
   }
 }
@@ -143,13 +156,15 @@ export async function buildPreview({ root, target = null, targets, files, patter
     let rel = input;
     try {
       rel = toRootRelative(root, input);
-      if (!(await exists(resolveInside(root, rel)))) return failure(rel, 'error', 'File not found');
+      const stat = await lstatIfExists(resolveInside(root, rel));
+      if (!stat) return failure(rel, 'error', 'File not found');
       const reason = filterReason(rel, { ...DEFAULT_FILTERS, ...filters });
       if (reason) return failure(rel, 'skipped', reason);
       const parsed = parseRelativePath(rel);
       const destination = destinations[parsed.kind] ?? null;
       const item = await describe(rel, parsed, effective, metadata, { moving: Boolean(destination) });
       if (item.newRel) item.target = destination;
+      item.size = stat.size;
       return item;
     } catch (error) {
       return failure(rel, 'error', (error as Error).message);

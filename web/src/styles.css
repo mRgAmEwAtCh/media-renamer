@@ -101,6 +101,16 @@ tr.status-ok td.status, tr.status-edited td.status { color: var(--ok); }
 tr.status-warning td.status { color: var(--warn); }
 tr.status-conflict td.status, tr.status-error td.status { color: var(--bad); }
 tr.status-skipped, tr.status-unchanged { color: var(--muted); }
+tr.status-overwrite td.status { color: var(--warn); }
+tr.status-delete td.status { color: var(--bad); }
+
+/* A conflict row: sizes of both files and how to settle it. */
+.conflict { margin-top: 0.4rem; display: grid; gap: 0.35rem; }
+.conflict .hint { margin: 0; font-size: 0.8rem; overflow-wrap: anywhere; }
+.conflict-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.conflict-actions button { padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+.conflict-actions button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.conflict label.checkbox { padding-bottom: 0; font-size: 0.85rem; color: var(--text); }
 
 .job progress { width: 100%; height: 0.9rem; accent-color: var(--accent); }
 .job-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
@@ -118,10 +128,12 @@ fieldset.automation { margin-bottom: 0.75rem; }
 fieldset.automation .checkbox { padding-bottom: 0; color: var(--text); }
 select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; }
 
-.activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
-.activity-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); }
+/* minmax(0, …) and min-width: 0 let cards shrink to the screen instead of growing to fit long release names. */
+.activity { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
+.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); }
 .activity-item.state-running, .activity-item.state-cancelling { border-color: var(--accent); }
-.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
+.activity-head strong { flex: 1 1 100%; min-width: 0; }
 .activity-head button { margin-left: auto; }
 .activity-summary { margin: 0.3rem 0; }
 .activity-progress progress { width: 100%; accent-color: var(--accent); }
@@ -132,7 +144,8 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .badge-failed, .badge-interrupted { color: var(--bad); border-color: var(--bad); }
 .badge-queued { color: var(--warn); border-color: var(--warn); }
 .steps { list-style: none; margin: 0.3rem 0; padding: 0; font-size: 0.85rem; display: grid; gap: 0.1rem; }
-.step-icon { display: inline-block; width: 1.3rem; }
+/* Icon column, so wrapped step text lines up with the label. */
+.step { display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); }
 .step-pending, .step-skipped { color: var(--muted); }
 .step-running .step-icon { color: var(--accent); }
 .step-done .step-icon { color: var(--ok); }
@@ -142,10 +155,11 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .activity-files ul { list-style: none; margin: 0.3rem 0; padding: 0; display: grid; gap: 0.35rem; font-size: 0.85rem; }
 .activity-files li { display: grid; gap: 0.05rem; }
 .activity-files .outcome { font-weight: 600; }
+.activity-files .hint, .activity-head .hint, .activity-item p.hint { margin: 0; }
 .outcome-moved .outcome, .outcome-converted .outcome { color: var(--ok); }
 .outcome-review .outcome { color: var(--warn); }
 .outcome-failed .outcome { color: var(--bad); }
-button.link { border: none; background: none; color: var(--accent); padding: 0.2rem 0; text-align: left; }
+button.link { border: none; background: none; color: var(--accent); padding: 0.2rem 0; text-align: left; overflow-wrap: anywhere; }
 
 .login { max-width: 360px; min-height: 100vh; margin: 0 auto; padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .login h1 { margin: 0.75rem 0 1.25rem; font-size: 1.6rem; }
@@ -211,7 +225,7 @@ dialog[aria-busy='true'] .folders { opacity: 0.5; }
 
 /* Phones: the file table becomes one card per file, and controls get finger-sized. */
 @media (max-width: 700px) {
-  body > header, main, footer.credits { padding-left: 0.75rem; padding-right: 0.75rem; }
+  #app > header, main, footer.credits { padding-left: 0.75rem; padding-right: 0.75rem; }
   .panel { padding: 0.9rem; }
 
   input[type='text'], input[type='password'], textarea, select { font-size: 16px; }

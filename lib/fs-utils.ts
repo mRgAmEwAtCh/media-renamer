@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Mode, ObjectEncodingOptions } from 'node:fs';
@@ -10,15 +11,19 @@ export interface WriteFileAtomicOptions extends ObjectEncodingOptions {
   flush?: boolean;
 }
 
-/** True when something (file, folder or dangling symlink) exists at `target`. */
-export async function exists(target: string): Promise<boolean> {
+/** What is at `target` (without following symlinks), or null when nothing is there. */
+export async function lstatIfExists(target: string): Promise<Stats | null> {
   try {
-    await fs.lstat(target);
-    return true;
+    return await fs.lstat(target);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   }
+}
+
+/** True when something (file, folder or dangling symlink) exists at `target`. */
+export async function exists(target: string): Promise<boolean> {
+  return (await lstatIfExists(target)) !== null;
 }
 
 /**

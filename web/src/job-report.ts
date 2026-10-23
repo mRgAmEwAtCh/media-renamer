@@ -4,12 +4,21 @@ import type { StatusKind } from './hooks/useStatus.ts';
 const listTargets = (targets: string[] | undefined) => (targets?.length ? targets.join(' and ') : '');
 
 function reportApply(r: ApplyResult): [string, StatusKind] {
-  const verb = r.targets?.length ? `Moved ${r.renamed} file(s) to ${listTargets(r.targets)}` : `Renamed ${r.renamed} file(s)`;
+  const replaced = r.renames.filter((rename) => rename.replaced).length;
+  const moved = r.targets?.length ? `Moved ${r.renamed} file(s) to ${listTargets(r.targets)}` : `Renamed ${r.renamed} file(s)`;
+  const done = [
+    (r.renamed || !r.removed?.length) && `${moved}${replaced ? ` (replaced ${replaced} existing)` : ''}`,
+    r.removed?.length && `deleted ${r.removed.length} extracted file(s)`,
+  ]
+    .filter(Boolean)
+    .join('; ');
+  const verb = done.charAt(0).toUpperCase() + done.slice(1);
   const failed = r.failed?.length ? ` ${r.failed.length} failed: ${r.failed.map((f) => `${f.from} (${f.reason})`).join('; ')}.` : '';
   if (r.cancelled) {
     return [`Cancelled. ${verb}; the file in progress was left where it was.${failed} “Undo last batch” reverts the completed ones.`, 'error'];
   }
-  return [`${verb}.${failed} Use “Undo last batch” to revert.`, failed ? 'error' : 'success'];
+  const undo = r.renamed ? ' Use “Undo last batch” to revert.' : '';
+  return [`${verb}.${failed}${undo}`, failed ? 'error' : 'success'];
 }
 
 function reportUndo(r: UndoResult): [string, StatusKind] {

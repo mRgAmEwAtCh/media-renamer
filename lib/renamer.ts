@@ -7,6 +7,7 @@ export { CancelledError, isCancellation, moveFile } from './mover.ts';
 export { resolveInside, resolveRoot, resolveTarget, toRootRelative } from './paths.ts';
 export { applyRenames } from './rename/apply.ts';
 export { UNDO_LOG } from './rename/journal.ts';
+export { freeName } from './rename/free-name.ts';
 export { buildPreview, destinationsFrom } from './rename/preview.ts';
 export { filterReason, parseRelativePath, scanFolder } from './rename/scan.ts';
 export { undoLast } from './rename/undo.ts';

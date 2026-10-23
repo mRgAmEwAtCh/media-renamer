@@ -118,7 +118,16 @@ export interface PreviewItem {
   status: ItemStatus;
   match: string | null;
   message: string | null;
+  /** Size of the file in bytes. */
+  size?: number;
+  /** Size of the file that already has the new name, if there is one. */
+  existingSize?: number;
+  /** Set when status is 'conflict': why, and the status and message the item had before. */
+  conflict?: { reason: ConflictReason; status: ItemStatus; message: string | null };
 }
+
+/** 'exists': a file already has the new name; 'duplicate': another item in the batch maps to the same name. */
+export type ConflictReason = 'exists' | 'duplicate';
 
 /* ---------- Audio fix ---------- */
 
@@ -151,6 +160,8 @@ export interface RenameRequest {
   /** Absolute destination folder; null or missing renames in place. */
   target?: string | null;
   audio?: AudioPlan | null;
+  /** Replace a file that already has the new name (it cannot be restored by undo). */
+  overwrite?: boolean;
 }
 
 export interface Progress {
@@ -174,6 +185,8 @@ export interface DoneRename {
   to: string;
   target: string | null;
   converted?: boolean;
+  /** An existing file with the new name was replaced. */
+  replaced?: boolean;
 }
 
 export interface FailedRename extends DoneRename {
@@ -188,6 +201,8 @@ export interface ApplyResult {
   target: string | null;
   targets: string[];
   renames: DoneRename[];
+  /** Source files deleted on request (only present when deletions were asked for). */
+  removed?: string[];
 }
 
 export interface UndoResult {
@@ -212,6 +227,8 @@ export interface JournalEntry {
   /** Name of the partial copy while the move is in progress. */
   partial?: string;
   converted?: boolean;
+  /** A file with the new name was replaced; undo cannot bring it back. */
+  replaced?: boolean;
 }
 
 export interface JournalBatch {

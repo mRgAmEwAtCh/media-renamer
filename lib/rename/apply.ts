@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { convertAndMove } from '../audio.ts';
 import { InputError } from '../errors.ts';
-import { exists } from '../fs-utils.ts';
+import { exists, lstatIfExists } from '../fs-utils.ts';
 import { isCancellation, moveFile, partialPathFor } from '../mover.ts';
 import { resolveInside, toRootRelative } from '../paths.ts';
 import type {
@@ -20,6 +20,7 @@ import type {
 import { readUndoLog, recoverInterrupted, sharedTarget, writeUndoLog } from './journal.ts';
 import { acquireLock } from './lock.ts';
 import { createProgress, stopRequested } from './progress.ts';
+import { planRemovals, removeFiles } from './remove.ts';
 
 /** How audio conversions run: the ffmpeg/ffprobe binaries and the target bitrate. */
 export interface ApplyAudioOptions {
@@ -36,6 +37,8 @@ export interface ApplyOptions {
   onProgress?: ProgressListener;
   /** Shown to other jobs that find the folder locked. */
   owner?: string;
+  /** Files (relative to root) to delete after the renames, e.g. skipped duplicates. Not undoable. */
+  remove?: readonly unknown[];
 }
 
 /** A validated rename with absolute paths. */
@@ -48,6 +51,8 @@ interface PlannedRename {
   caseOnly: boolean;
   size: number;
   audio: AudioPlan | null;
+  /** May replace a file that already has the new name. */
+  overwrite: boolean;
 }
 
 /** The absolute destination folder of one rename: its own `target`, else `fallback`, else root. */
@@ -82,7 +87,10 @@ async function planRenames(root: string, renames: readonly RenameRequest[], fall
     const caseOnly = sameRoot && from.toLowerCase() === to.toLowerCase();
     const stat = await fs.lstat(fromAbsolute).catch(() => null);
     if (!stat?.isFile()) throw new InputError(`Source is not a regular file: ${from}`);
-    if (!caseOnly && (await exists(toAbsolute))) throw new InputError(`Target already exists: ${to}`);
+    const overwrite = rename?.overwrite === true;
+    const existing = caseOnly ? null : await lstatIfExists(toAbsolute);
+    if (existing && !overwrite) throw new InputError(`Target already exists: ${to}`);
+    if (existing && !existing.isFile()) throw new InputError(`Only files can be replaced: ${to}`);
     planned.push({
       from,
       to,
@@ -92,24 +100,34 @@ async function planRenames(root: string, renames: readonly RenameRequest[], fall
       caseOnly,
       size: stat.size,
       audio: rename.audio?.conversions?.length ? rename.audio : null,
+      overwrite,
     });
+  }
+  // Replacing a file that another rename in this batch moves away would destroy it.
+  const movedAway = new Set(planned.map((item) => item.fromAbsolute.toLowerCase()));
+  for (const item of planned) {
+    if (item.overwrite && !item.caseOnly && movedAway.has(item.toAbsolute.toLowerCase())) {
+      throw new InputError(`Cannot replace ${item.to}: it is renamed in the same batch`);
+    }
   }
   return planned;
 }
 
-/** Move (or convert and move) one planned file; marks `entry.converted` for audio conversions. */
+/** Move (or convert and move) one planned file; marks `entry.converted` and `entry.replaced`. */
 async function transfer(
   item: PlannedRename,
   entry: JournalEntry,
   { audio, signal, partialPath, onBytes }: { audio: ApplyAudioOptions; signal?: AbortSignal; partialPath: string; onBytes: (bytes: number) => void },
 ): Promise<void> {
   await fs.mkdir(path.dirname(item.toAbsolute), { recursive: true });
-  if (!item.caseOnly && (await exists(item.toAbsolute))) throw new Error('Target appeared after the preview');
+  const taken = !item.caseOnly && (await exists(item.toAbsolute));
+  if (taken && !item.overwrite) throw new Error('Target appeared after the preview');
+  if (taken) entry.replaced = true;
   if (item.audio) {
     await convertAndMove(item.fromAbsolute, item.toAbsolute, { plan: item.audio, partialPath, tools: audio.tools, bitrate: audio.bitrate, signal, onProgress: onBytes });
     entry.converted = true;
   } else {
-    await moveFile(item.fromAbsolute, item.toAbsolute, { signal, partialPath, onProgress: onBytes });
+    await moveFile(item.fromAbsolute, item.toAbsolute, { signal, partialPath, onProgress: onBytes, overwrite: item.overwrite });
   }
 }
 
@@ -143,7 +161,7 @@ async function runBatch(
       await transfer(item, entry, { audio, signal, partialPath, onBytes: (bytes) => progress.bytes(bytes) });
       entry.state = 'done';
       delete entry.partial;
-      done.push({ from: item.from, to: item.to, target: item.target, ...(item.audio && { converted: true }) });
+      done.push({ from: item.from, to: item.to, target: item.target, ...(item.audio && { converted: true }), ...(entry.replaced && { replaced: true }) });
     } catch (error) {
       batch.renames.pop();
       if (isCancellation(error)) {
@@ -174,22 +192,31 @@ async function runBatch(
  * A failing file is reported and the remaining files continue. Cancelling via
  * `signal` stops during the current file (its partial copy is removed and the
  * original stays in place); `stopSignal` stops only between files.
+ *
+ * A rename with `overwrite` replaces a file that has its new name. Files in
+ * `remove` are deleted after the renames (not when cancelled). Neither the
+ * replaced nor the deleted files can be restored by undo.
  */
 export async function applyRenames(
   root: string,
   renames: readonly RenameRequest[],
-  { target = null, audio = {}, signal, stopSignal, onProgress, owner = 'media-renamer' }: ApplyOptions = {},
+  { target = null, audio = {}, signal, stopSignal, onProgress, owner = 'media-renamer', remove = [] }: ApplyOptions = {},
 ): Promise<ApplyResult> {
-  if (!Array.isArray(renames) || renames.length === 0) throw new InputError('Nothing to rename');
-  const planned = await planRenames(root, renames, target);
+  const hasRenames = Array.isArray(renames) && renames.length > 0;
+  if (!hasRenames && !remove.length) throw new InputError('Nothing to rename');
+  const planned = hasRenames ? await planRenames(root, renames, target) : [];
+  const removals = await planRemovals(root, remove, planned.flatMap((item) => [item.fromAbsolute, item.toAbsolute]));
   const destinations = [...new Set(planned.map((item) => item.target).filter(Boolean) as string[])];
   const summary = { target: sharedTarget(root, planned.map((item) => item.target ?? root)), targets: destinations };
-  if (planned.length === 0) return { renamed: 0, failed: [], cancelled: false, ...summary, renames: [] };
+  if (planned.length === 0 && removals.length === 0) return { renamed: 0, failed: [], cancelled: false, ...summary, renames: [] };
 
   const release = await acquireLock(root, owner);
   try {
-    const { done, failed, cancelled } = await runBatch(root, planned, { audio, signal, stopSignal, onProgress });
-    return { renamed: done.length, failed, cancelled, ...summary, renames: done };
+    const { done, failed, cancelled } = planned.length
+      ? await runBatch(root, planned, { audio, signal, stopSignal, onProgress })
+      : { done: [], failed: [], cancelled: false };
+    const removed = cancelled ? [] : await removeFiles(removals, failed);
+    return { renamed: done.length, failed, cancelled, ...summary, renames: done, ...(removals.length > 0 && { removed }) };
   } finally {
     await release();
   }

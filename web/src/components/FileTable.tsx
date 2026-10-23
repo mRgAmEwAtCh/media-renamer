@@ -1,38 +1,13 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { ParsedMedia, PreviewItem } from '../../../lib/types.ts';
+import { editName, resolveConflict } from '../conflicts.ts';
+import { isSelectable, type Item, type Resolution } from '../items.ts';
 import { Breakable } from './Breakable.tsx';
-
-/** A row of the table: a preview item, or a scanned file before the preview. */
-export type Item = PreviewItem & { selected: boolean };
-
-/** Preview statuses the user may select for renaming. */
-export const RENAMABLE: ReadonlySet<string> = new Set(['ok', 'warning', 'edited']);
+import { ConflictActions } from './ConflictActions.tsx';
 
 const KIND_LABEL: Record<string, string> = { episode: 'TV', movie: 'Movies' };
 
-const willChange = (item: Item) => Boolean(item.newRel && (item.target || item.newRel !== item.rel));
-
-/** Items that are selected and would actually be renamed or moved. */
-export const selectedItems = (items: Item[]): Item[] => items.filter((item) => item.selected && RENAMABLE.has(item.status) && willChange(item));
-
-function describeParsed(parsed: ParsedMedia): string {
-  if (parsed.kind === 'episode') return `${parsed.title || '?'} · S${parsed.season}E${parsed.episode}`;
-  if (parsed.kind === 'movie') return `${parsed.title}${parsed.year ? ` (${parsed.year})` : ''}`;
-  return 'Not recognised';
-}
-
-/** Table rows for freshly scanned files, before any preview. */
-export const itemsFromScan = (files: { rel: string; parsed: ParsedMedia }[]): Item[] =>
-  files.map((file) => ({
-    rel: file.rel,
-    kind: file.parsed.kind,
-    newRel: null,
-    target: null,
-    status: 'pending',
-    match: describeParsed(file.parsed),
-    message: null,
-    selected: false,
-  }));
+/** The status shown for a row: a settled conflict shows what will happen to it. */
+const shownStatus = (item: Item): string => (item.resolution === 'overwrite' && item.status === 'conflict' ? 'overwrite' : item.resolution === 'remove' ? 'delete' : item.status);
 
 /** Grow a textarea to fit its content. */
 function fitHeight(textarea: HTMLTextAreaElement) {
@@ -72,25 +47,38 @@ function NameEditor({ item, onEdit }: { item: Item; onEdit: (newRel: string) => 
   );
 }
 
-function Row({ item, onChange }: { item: Item; onChange: (patch: Partial<Item>) => void }) {
+interface RowProps {
+  item: Item;
+  items: Item[];
+  onSelect: (selected: boolean) => void;
+  onEdit: (newRel: string) => void;
+  onResolve: (resolution: Resolution) => void;
+  onKeepBoth: () => Promise<void>;
+}
+
+function Row({ item, items, onSelect, onEdit, onResolve, onKeepBoth }: RowProps) {
+  const status = shownStatus(item);
   return (
-    <tr className={`status-${item.status}`}>
+    <tr className={`status-${status}`}>
       <td>
         <input
           type="checkbox"
           checked={item.selected}
-          disabled={!RENAMABLE.has(item.status)}
+          disabled={!isSelectable(item)}
           aria-label={`Select ${item.rel}`}
-          onChange={(event) => onChange({ selected: event.target.checked })}
+          onChange={(event) => onSelect(event.target.checked)}
         />
       </td>
       <td className="path">
         <Breakable text={item.rel} />
       </td>
-      <td>{item.newRel !== null && <NameEditor item={item} onEdit={(newRel) => onChange({ newRel, status: 'edited', message: 'Edited by hand', selected: true })} />}</td>
+      <td>
+        {item.newRel !== null && <NameEditor key={item.editorKey ?? 0} item={item} onEdit={onEdit} />}
+        {item.conflict && <ConflictActions item={item} items={items} onResolve={onResolve} onKeepBoth={onKeepBoth} />}
+      </td>
       <td className="match">{item.match ?? item.message ?? ''}</td>
       <td className="status" title={item.message ?? ''}>
-        {item.status}
+        {status}
       </td>
     </tr>
   );
@@ -101,7 +89,15 @@ function Row({ item, onChange }: { item: Item; onChange: (patch: Partial<Item>) 
  * before the first scan. `version` changes with every scan and preview, so name
  * editors start from the new proposals.
  */
-export function FileTable({ items, version, onChange }: { items: Item[] | null; version: number; onChange: (items: Item[]) => void }) {
+interface FileTableProps {
+  items: Item[] | null;
+  version: number;
+  onChange: (items: Item[]) => void;
+  /** Give the row a free name next to the file in the way. */
+  onKeepBoth: (index: number) => Promise<void>;
+}
+
+export function FileTable({ items, version, onChange, onKeepBoth }: FileTableProps) {
   useEffect(() => {
     const fitAll = () => document.querySelectorAll<HTMLTextAreaElement>('#rows textarea').forEach(fitHeight);
     window.addEventListener('resize', fitAll);
@@ -109,9 +105,9 @@ export function FileTable({ items, version, onChange }: { items: Item[] | null; 
   }, []);
 
   const list = items ?? [];
-  const renamable = list.filter((item) => RENAMABLE.has(item.status));
-  const update = (index: number, patch: Partial<Item>) => onChange(list.map((item, i) => (i === index ? { ...item, ...patch } : item)));
-  const selectAll = (selected: boolean) => onChange(list.map((item) => (RENAMABLE.has(item.status) ? { ...item, selected } : item)));
+  const renamable = list.filter(isSelectable);
+  const select = (index: number, selected: boolean) => onChange(list.map((item, i) => (i === index ? { ...item, selected } : item)));
+  const selectAll = (selected: boolean) => onChange(list.map((item) => (isSelectable(item) ? { ...item, selected } : item)));
 
   return (
     <section className="panel" aria-labelledby="files-heading">
@@ -145,7 +141,15 @@ export function FileTable({ items, version, onChange }: { items: Item[] | null; 
             </tr>
           )}
           {list.map((item, index) => (
-            <Row key={`${version}:${item.rel}`} item={item} onChange={(patch) => update(index, patch)} />
+            <Row
+              key={`${version}:${item.rel}`}
+              item={item}
+              items={list}
+              onSelect={(selected) => select(index, selected)}
+              onEdit={(newRel) => onChange(editName(list, index, newRel))}
+              onResolve={(resolution) => onChange(resolveConflict(list, index, resolution))}
+              onKeepBoth={() => onKeepBoth(index)}
+            />
           ))}
         </tbody>
       </table>

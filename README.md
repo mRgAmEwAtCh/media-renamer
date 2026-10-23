@@ -176,6 +176,7 @@ While working on the web UI, run `npm start` and `npm run dev` side by side and 
 1. Click **Browse…** to choose the folder to rename, or type a path. Choosing a folder starts the scan.
 2. Under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save as default** keeps these settings for next time.
 3. Click **Preview names**. Each file shows which library it goes to. Matched files are selected automatically; warnings must be selected by hand. You can edit any new name before applying.
+   If a new name is taken, by a file already in the library or by another file in the list, the row shows the sizes of both files and offers **Keep both** (the new file gets “(2)” added), **Overwrite** (replaces the existing file) or **Skip**, which can also delete the extracted file, e.g. a lower-quality copy. Replaced and deleted files cannot be restored with **Undo last batch**.
 4. Click **Rename selected** (or **Rename & move selected**). A progress panel with **Cancel** appears while the server works. If you change a destination after previewing, you must preview again. **Undo last batch** moves files back from both libraries.
 
 ### Choosing folders

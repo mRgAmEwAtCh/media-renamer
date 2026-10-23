@@ -28,7 +28,7 @@ The image is multi-arch for 64-bit systems: x86-64 and ARM64 (e.g. a Raspberry P
    MEDIA_RENAMER_MOVIE_TARGET=/media/Movies
    ```
 3. Start it.
-   - **Prebuilt image (no build on the NAS):** set `MEDIA_RENAMER_IMAGE=ghcr.io/mrgamewatch/media-renamer:latest` in `.env`, then `mkdir -p config && docker compose pull && docker compose up -d`. `latest` is the newest release; use a release number such as `0.8` to stay on one version, or `main` for the current development state.
+   - **Prebuilt image (no build on the NAS):** set `MEDIA_RENAMER_IMAGE=ghcr.io/mrgamewatch/media-renamer:latest` in `.env`, then `mkdir -p config && docker compose pull && docker compose up -d`. `latest` is the newest release; use a release number such as `0.8` to stay on one version, or `main` for the current development state. To try a pull request before it is merged, use `pr-<number>` (e.g. `pr-12`); each push to a pull request from this repository updates that image, and the CI run's summary shows the exact pull command.
    - **Build locally over SSH:** `mkdir -p config && docker compose up -d --build` in that folder.
    - **OMV web UI** (Services → Compose → Files): paste `compose.yaml` and the `.env` contents. The compose plugin needs the image to exist or a build context, so either set `MEDIA_RENAMER_IMAGE` to the prebuilt image or build once over SSH (or `docker build -t media-renamer:latest .`).
 4. Open `http://<nas>:4173/`, log in with your password, and click **Browse…**. Only the folders in `MEDIA_RENAMER_ROOTS` are visible.

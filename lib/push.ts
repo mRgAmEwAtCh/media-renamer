@@ -1,13 +1,43 @@
 import { createECDH, createHmac, createPrivateKey, createCipheriv, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import fs from 'node:fs/promises';
+import type { webcrypto } from 'node:crypto';
 import { writeFileAtomic } from './fs-utils.ts';
+import type { JobSnapshot } from './types.ts';
 
-const b64url = (buffer) => Buffer.from(buffer).toString('base64url');
-const hmac = (key, data) => createHmac('sha256', key).update(data).digest();
+/** The keys a browser hands out with its push subscription (base64url). */
+export interface PushKeys {
+  p256dh: string;
+  auth: string;
+}
+
+export interface PushSubscriptionRecord {
+  endpoint: string;
+  keys: PushKeys;
+}
+
+/** What is stored in the push file: the VAPID private key and the subscribers. */
+export interface PushState {
+  privateKey: webcrypto.JsonWebKey;
+  subscriptions: PushSubscriptionRecord[];
+}
+
+export interface PushMessage {
+  title: string;
+  body: string;
+}
+
+/** The part of `fetch` that Push uses; tests pass a fake. */
+export type PushSend = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: Buffer },
+) => Promise<{ status: number; ok: boolean }>;
+
+const b64url = (buffer: string | Buffer) => Buffer.from(buffer).toString('base64url');
+const hmac = (key: Buffer, data: Buffer) => createHmac('sha256', key).update(data).digest();
 const CONTACT = 'https://github.com/mRgAmEwAtCh/media-renamer';
 
 /** Encrypt a payload for one subscription (RFC 8291, aes128gcm). `fixed` is for the RFC's test vector only. */
-export function encryptPayload(payload, { p256dh, auth }, fixed = {}) {
+export function encryptPayload(payload: string, { p256dh, auth }: PushKeys, fixed: { privateKey?: string; salt?: string } = {}): Buffer {
   const userPublic = Buffer.from(p256dh, 'base64url');
   const local = createECDH('prime256v1');
   if (fixed.privateKey) local.setPrivateKey(Buffer.from(fixed.privateKey, 'base64url'));
@@ -30,10 +60,10 @@ export function encryptPayload(payload, { p256dh, auth }, fixed = {}) {
 }
 
 /** The message for a finished job that needs the user, or null. */
-export function actionNeeded(job) {
+export function actionNeeded(job: JobSnapshot): PushMessage | null {
   const name = job.label ?? (job.kind === 'import' ? 'Import' : 'Rename');
   if (job.state === 'failed') return { title: `Failed: ${name}`, body: job.error ?? 'The job failed.' };
-  const result = job.result ?? {};
+  const result = (job.result ?? {}) as { failed?: unknown[] | number; review?: number };
   const failed = Array.isArray(result.failed) ? result.failed.length : (result.failed ?? 0);
   const parts = [
     result.review ? `${result.review} file${result.review === 1 ? ' needs' : 's need'} review` : '',
@@ -47,18 +77,23 @@ export function actionNeeded(job) {
  * one JSON file in the config folder.
  */
 export class Push {
-  constructor(file, { send = fetch } = {}) {
+  file: string;
+  send: PushSend;
+  state: PushState | null;
+
+  constructor(file: string, { send = fetch }: { send?: PushSend } = {}) {
     this.file = file;
     this.send = send;
     this.state = null;
   }
 
-  async load() {
+  async load(): Promise<PushState> {
     if (this.state) return this.state;
     try {
-      this.state = JSON.parse(await fs.readFile(this.file, 'utf8'));
+      // Written by save(); trusted to have the PushState shape.
+      this.state = JSON.parse(await fs.readFile(this.file, 'utf8')) as PushState;
     } catch (error) {
-      if (error.code !== 'ENOENT') console.error(`Ignoring unreadable ${this.file}: ${error.message}`);
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.error(`Ignoring unreadable ${this.file}: ${(error as Error).message}`);
       const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
       this.state = { privateKey: privateKey.export({ format: 'jwk' }), subscriptions: [] };
       await this.save();
@@ -66,39 +101,40 @@ export class Push {
     return this.state;
   }
 
-  async save() {
+  async save(): Promise<void> {
     await writeFileAtomic(this.file, JSON.stringify(this.state), { mkdir: true, mode: 0o600 });
   }
 
-  async publicKey() {
+  async publicKey(): Promise<string> {
     const { privateKey: { x, y } } = await this.load();
-    return b64url(Buffer.concat([Buffer.from([4]), Buffer.from(x, 'base64url'), Buffer.from(y, 'base64url')]));
+    return b64url(Buffer.concat([Buffer.from([4]), Buffer.from(x!, 'base64url'), Buffer.from(y!, 'base64url')]));
   }
 
-  async subscribe(subscription) {
-    const { endpoint, keys } = subscription ?? {};
+  /** `subscription` comes straight from a request body and is validated here. */
+  async subscribe(subscription: unknown): Promise<void> {
+    const { endpoint, keys } = (subscription ?? {}) as { endpoint?: string; keys?: Partial<PushKeys> };
     if (!/^https:\/\//.test(endpoint ?? '') || typeof keys?.p256dh !== 'string' || typeof keys?.auth !== 'string') {
       throw new Error('Invalid push subscription');
     }
     const state = await this.load();
-    state.subscriptions = state.subscriptions.filter((s) => s.endpoint !== endpoint).concat({ endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } });
+    state.subscriptions = state.subscriptions.filter((s) => s.endpoint !== endpoint).concat({ endpoint: endpoint!, keys: { p256dh: keys.p256dh, auth: keys.auth } });
     await this.save();
   }
 
-  async unsubscribe(endpoint) {
+  async unsubscribe(endpoint: string): Promise<void> {
     const state = await this.load();
     state.subscriptions = state.subscriptions.filter((s) => s.endpoint !== endpoint);
     await this.save();
   }
 
   /** Send to every subscriber; subscriptions the push service no longer knows are removed. */
-  async notify(message) {
+  async notify(message: PushMessage & { url?: string }): Promise<void> {
     const state = await this.load();
     if (!state.subscriptions.length) return;
     const key = createPrivateKey({ key: state.privateKey, format: 'jwk' });
     const publicKey = await this.publicKey();
     const payload = JSON.stringify(message);
-    const gone = [];
+    const gone: string[] = [];
     await Promise.all(
       state.subscriptions.map(async (subscription) => {
         const audience = new URL(subscription.endpoint).origin;
@@ -121,7 +157,7 @@ export class Push {
           if (response.status === 404 || response.status === 410) gone.push(subscription.endpoint);
           else if (!response.ok) console.error(`Push to ${audience} failed: ${response.status}`);
         } catch (error) {
-          console.error(`Push to ${audience} failed: ${error.message}`);
+          console.error(`Push to ${audience} failed: ${(error as Error).message}`);
         }
       }),
     );

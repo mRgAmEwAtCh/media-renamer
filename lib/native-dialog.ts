@@ -5,6 +5,43 @@ import os from 'node:os';
 import path from 'node:path';
 import { InputError } from './errors.ts';
 
+export type FindExecutable = (name: string, env: NodeJS.ProcessEnv) => Promise<string | null>;
+
+/** How to launch the platform's folder dialog. */
+export interface DialogCommand {
+  tool: 'osascript' | 'powershell' | 'zenity' | 'kdialog';
+  command: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  /** Exit codes that mean the user dismissed the dialog. */
+  cancelCodes: number[];
+}
+
+export interface DialogCommandOptions {
+  platform?: string;
+  start: string;
+  env?: NodeJS.ProcessEnv;
+  which?: FindExecutable;
+}
+
+export interface DialogRunResult {
+  /** Exit code, or an error code such as "ENOENT" when the command could not start. */
+  code: number | string | null | undefined;
+  killed: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+export interface PickFolderOptions {
+  start?: unknown;
+  platform?: string;
+  env?: NodeJS.ProcessEnv;
+  which?: FindExecutable;
+  run?: (spec: DialogCommand) => Promise<DialogRunResult>;
+}
+
+export type PickFolderResult = { path: string; cancelled?: undefined } | { cancelled: true; path?: undefined };
+
 const TITLE = 'Choose a media folder';
 const DIALOG_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -32,7 +69,7 @@ try {
 } finally { $owner.Dispose(); $dialog.Dispose() }
 `;
 
-async function findExecutable(name, env = process.env) {
+async function findExecutable(name: string, env: NodeJS.ProcessEnv = process.env) {
   for (const directory of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
     const candidate = path.join(directory, name);
     try {
@@ -46,7 +83,9 @@ async function findExecutable(name, env = process.env) {
 }
 
 /** Describe the native folder dialog for this platform, or null when none is usable. */
-export async function nativeDialogCommand({ platform = process.platform, start, env = process.env, which = findExecutable } = {}) {
+export async function nativeDialogCommand(
+  { platform = process.platform, start, env = process.env, which = findExecutable }: DialogCommandOptions = {} as DialogCommandOptions,
+): Promise<DialogCommand | null> {
   if (platform === 'darwin') {
     return { tool: 'osascript', command: 'osascript', args: [...MAC_SCRIPT.flatMap((line) => ['-e', line]), start], env, cancelCodes: [1] };
   }
@@ -72,7 +111,7 @@ export async function nativeDialogCommand({ platform = process.platform, start, 
   return null;
 }
 
-function runCommand({ command, args, env }) {
+function runCommand({ command, args, env }: DialogCommand): Promise<DialogRunResult> {
   return new Promise((resolve) => {
     execFile(command, args, { env, encoding: 'utf8', timeout: DIALOG_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       resolve({ code: error ? error.code : 0, killed: Boolean(error?.killed), stdout, stderr });
@@ -86,7 +125,9 @@ let dialogOpen = false;
  * Open the operating system's folder picker.
  * Resolves { path } on selection, { cancelled: true } when dismissed.
  */
-export async function pickFolderNative({ start, platform = process.platform, env = process.env, which, run = runCommand } = {}) {
+export async function pickFolderNative(
+  { start, platform = process.platform, env = process.env, which, run = runCommand }: PickFolderOptions = {},
+): Promise<PickFolderResult> {
   let startDirectory = os.homedir();
   if (typeof start === 'string' && start.trim()) {
     const candidate = path.resolve(start.trim());
@@ -102,7 +143,7 @@ export async function pickFolderNative({ start, platform = process.platform, env
     const result = await run(spec);
     if (result.code === 'ENOENT') throw new InputError(`${spec.tool} is not installed`);
     if (result.killed) return { cancelled: true };
-    const cancelled = spec.cancelCodes.includes(result.code) && (spec.tool !== 'osascript' || /-128/.test(result.stderr));
+    const cancelled = spec.cancelCodes.includes(result.code as number) && (spec.tool !== 'osascript' || /-128/.test(result.stderr));
     if (cancelled) return { cancelled: true };
     if (result.code !== 0) throw new Error(`${spec.tool} failed: ${result.stderr.trim() || `exit code ${result.code}`}`);
 
@@ -115,6 +156,6 @@ export async function pickFolderNative({ start, platform = process.platform, env
   }
 }
 
-export async function nativeDialogAvailable(options = {}) {
+export async function nativeDialogAvailable(options: Partial<DialogCommandOptions> = {}) {
   return Boolean(await nativeDialogCommand({ start: os.homedir(), ...options }));
 }

@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import type { AutomationSettings, Filters, Patterns, Settings, Targets } from '../types.ts';
 import { DEFAULT_FILTERS, DEFAULT_PATTERNS, KINDS } from '../defaults.ts';
 import { validatePattern } from '../format.ts';
 import { DEFAULT_LANGUAGE, normalizeLanguage, normalizeRegion } from '../metadata.ts';
@@ -7,8 +8,10 @@ import { AUDIO_LANGUAGE, blankToNull, csv, KIND_LABEL, validAudioBitrate } from 
 
 export const SETTINGS_FILE_NAME = 'settings.json';
 
+type Env = NodeJS.ProcessEnv;
+
 /** Parse a boolean environment value; undefined/empty returns the fallback. */
-export function envFlag(value, fallback) {
+export function envFlag(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || String(value).trim() === '') return fallback;
   const normalized = String(value).trim().toLowerCase();
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
@@ -17,7 +20,7 @@ export function envFlag(value, fallback) {
 }
 
 /** Default file filters from MEDIA_RENAMER_VIDEO_ONLY and MEDIA_RENAMER_INCLUDE_SAMPLES. */
-export function filterDefaults(env = process.env) {
+export function filterDefaults(env: Env = process.env): Filters {
   return {
     videoOnly: envFlag(env.MEDIA_RENAMER_VIDEO_ONLY, DEFAULT_FILTERS.videoOnly),
     excludeSamples: !envFlag(env.MEDIA_RENAMER_INCLUDE_SAMPLES, !DEFAULT_FILTERS.excludeSamples),
@@ -25,7 +28,7 @@ export function filterDefaults(env = process.env) {
 }
 
 /** Where saved settings live: MEDIA_RENAMER_CONFIG_DIR, else the platform's per-user config folder. */
-export function configDir(env = process.env, platform = process.platform) {
+export function configDir(env: Env = process.env, platform: NodeJS.Platform = process.platform): string {
   if (env.MEDIA_RENAMER_CONFIG_DIR?.trim()) return path.resolve(env.MEDIA_RENAMER_CONFIG_DIR.trim());
   const home = os.homedir();
   if (platform === 'win32') return path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'media-renamer');
@@ -33,11 +36,11 @@ export function configDir(env = process.env, platform = process.platform) {
   return path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'media-renamer');
 }
 
-export const settingsFilePath = (env = process.env) => path.join(configDir(env), SETTINGS_FILE_NAME);
+export const settingsFilePath = (env: Env = process.env): string => path.join(configDir(env), SETTINGS_FILE_NAME);
 
-function envTargets(env) {
+function envTargets(env: Env): Targets {
   const shared = blankToNull(env.MEDIA_RENAMER_TARGET);
-  const targets = {
+  const targets: Targets = {
     episode: env.MEDIA_RENAMER_TV_TARGET !== undefined ? blankToNull(env.MEDIA_RENAMER_TV_TARGET) : shared,
     movie: env.MEDIA_RENAMER_MOVIE_TARGET !== undefined ? blankToNull(env.MEDIA_RENAMER_MOVIE_TARGET) : shared,
   };
@@ -49,8 +52,8 @@ function envTargets(env) {
   return targets;
 }
 
-function envPatterns(env) {
-  const patterns = {
+function envPatterns(env: Env): Patterns {
+  const patterns: Patterns = {
     episode: blankToNull(env.MEDIA_RENAMER_EPISODE_PATTERN) ?? DEFAULT_PATTERNS.episode,
     movie: blankToNull(env.MEDIA_RENAMER_MOVIE_PATTERN) ?? DEFAULT_PATTERNS.movie,
   };
@@ -58,14 +61,14 @@ function envPatterns(env) {
     try {
       validatePattern(patterns[kind]);
     } catch (error) {
-      throw new Error(`Invalid MEDIA_RENAMER_${kind.toUpperCase()}_PATTERN: ${error.message}`);
+      throw new Error(`Invalid MEDIA_RENAMER_${kind.toUpperCase()}_PATTERN: ${(error as Error).message}`);
     }
   }
   return patterns;
 }
 
 /** Automatic import defaults from the environment. */
-function envAutomation(env, language) {
+function envAutomation(env: Env, language: string): AutomationSettings {
   const languages = csv(env.MEDIA_RENAMER_AUDIO_LANGUAGES);
   for (const code of languages) {
     if (!AUDIO_LANGUAGE.test(code)) throw new Error(`Invalid MEDIA_RENAMER_AUDIO_LANGUAGES entry: ${code} (use e.g. de,en)`);
@@ -94,7 +97,7 @@ function envAutomation(env, language) {
  * MEDIA_RENAMER_CLEANUP_EMPTY_FOLDERS, MEDIA_RENAMER_AUDIO_FIX, MEDIA_RENAMER_AUDIO_FIX_EPISODES,
  * MEDIA_RENAMER_AUDIO_LANGUAGES (default: the metadata language) and MEDIA_RENAMER_AUDIO_BITRATE.
  */
-export function envSettings(env = process.env) {
+export function envSettings(env: Env = process.env): Settings {
   const targets = envTargets(env);
   const patterns = envPatterns(env);
   const language = normalizeLanguage(env.MEDIA_RENAMER_LANGUAGE) ?? DEFAULT_LANGUAGE;

@@ -4,6 +4,35 @@ import path from 'node:path';
 import { isMediaFile } from './parse.ts';
 import { InputError } from './errors.ts';
 
+export interface FolderEntry {
+  name: string;
+  path: string;
+}
+
+export type PlaceKind = 'home' | 'folder' | 'drive' | 'volume';
+
+export interface Place {
+  label: string;
+  path: string;
+  kind: PlaceKind;
+}
+
+export interface Breadcrumb {
+  label: string;
+  path: string;
+}
+
+/** What listDirectory returns for one folder. */
+export interface DirectoryListing {
+  path: string;
+  parent: string | null;
+  separator: string;
+  breadcrumbs: Breadcrumb[];
+  folders: FolderEntry[];
+  truncated: boolean;
+  mediaFiles: number;
+}
+
 const MAX_FOLDERS = 5000;
 const PROBE_TIMEOUT_MS = 1500;
 const WINDOWS_SYSTEM_NAMES = new Set([
@@ -11,13 +40,13 @@ const WINDOWS_SYSTEM_NAMES = new Set([
   'system volume information', 'pagefile.sys', 'hiberfil.sys', 'swapfile.sys', 'dumpstack.log.tmp',
 ]);
 
-const isHidden = (name) => name.startsWith('.') || WINDOWS_SYSTEM_NAMES.has(name.toLowerCase());
-const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+const isHidden = (name: string) => name.startsWith('.') || WINDOWS_SYSTEM_NAMES.has(name.toLowerCase());
+const byName = (a: FolderEntry, b: FolderEntry) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
 /** stat() with a deadline, so a disconnected network drive cannot stall the listing. */
-async function isDirectory(target) {
-  let timer;
-  const timeout = new Promise((resolve) => {
+async function isDirectory(target: string): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
     timer = setTimeout(() => resolve(false), PROBE_TIMEOUT_MS);
   });
   const probe = fs.stat(target).then((stat) => stat.isDirectory(), () => false);
@@ -28,10 +57,10 @@ async function isDirectory(target) {
   }
 }
 
-async function childFolders(parent) {
+async function childFolders(parent: string): Promise<FolderEntry[]> {
   try {
     const entries = await fs.readdir(parent, { withFileTypes: true });
-    const folders = [];
+    const folders: FolderEntry[] = [];
     for (const entry of entries) {
       if (isHidden(entry.name)) continue;
       const target = path.join(parent, entry.name);
@@ -46,9 +75,9 @@ async function childFolders(parent) {
 }
 
 /** Quick-access locations: home folders plus drives (Windows) or mounted volumes (macOS/Linux). */
-export async function listPlaces({ platform = process.platform, home = os.homedir() } = {}) {
-  const candidates = [{ label: 'Home', path: home, kind: 'home' }];
-  for (const [label, names] of [['Desktop', ['Desktop']], ['Downloads', ['Downloads']], ['Videos', ['Videos', 'Movies']]]) {
+export async function listPlaces({ platform = process.platform, home = os.homedir() }: { platform?: string; home?: string } = {}): Promise<Place[]> {
+  const candidates: Array<Place & { group?: string }> = [{ label: 'Home', path: home, kind: 'home' }];
+  for (const [label, names] of [['Desktop', ['Desktop']], ['Downloads', ['Downloads']], ['Videos', ['Videos', 'Movies']]] as const) {
     for (const name of names) candidates.push({ label, path: path.join(home, name), kind: 'folder', group: label });
   }
 
@@ -69,8 +98,8 @@ export async function listPlaces({ platform = process.platform, home = os.homedi
   }
 
   const present = await Promise.all(candidates.map((place) => isDirectory(place.path)));
-  const places = [];
-  const seenGroups = new Set();
+  const places: Place[] = [];
+  const seenGroups = new Set<string>();
   candidates.forEach((place, index) => {
     if (!present[index] || places.some((p) => p.path === place.path)) return;
     if (place.group) {
@@ -82,8 +111,8 @@ export async function listPlaces({ platform = process.platform, home = os.homedi
   return places;
 }
 
-function breadcrumbs(directory) {
-  const crumbs = [];
+function breadcrumbs(directory: string): Breadcrumb[] {
+  const crumbs: Breadcrumb[] = [];
   for (let current = directory; ; current = path.dirname(current)) {
     const parent = path.dirname(current);
     crumbs.unshift({ label: parent === current ? current : path.basename(current), path: current });
@@ -92,7 +121,7 @@ function breadcrumbs(directory) {
 }
 
 /** List the subfolders of one directory and count the media files directly inside it. */
-export async function listDirectory(input, { showHidden = false } = {}) {
+export async function listDirectory(input: unknown, { showHidden = false }: { showHidden?: boolean } = {}): Promise<DirectoryListing> {
   if (typeof input !== 'string' || !input.trim()) throw new InputError('A folder path is required');
   const directory = path.resolve(input.trim());
 
@@ -100,12 +129,12 @@ export async function listDirectory(input, { showHidden = false } = {}) {
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if (error.code === 'EACCES' || error.code === 'EPERM') throw new InputError(`Permission denied: ${directory}`);
-    if (error.code === 'ENOTDIR') throw new InputError(`Not a folder: ${directory}`);
+    if ((error as NodeJS.ErrnoException).code === 'EACCES' || (error as NodeJS.ErrnoException).code === 'EPERM') throw new InputError(`Permission denied: ${directory}`);
+    if ((error as NodeJS.ErrnoException).code === 'ENOTDIR') throw new InputError(`Not a folder: ${directory}`);
     throw new InputError(`Folder not found: ${directory}`);
   }
 
-  const folders = [];
+  const folders: FolderEntry[] = [];
   let mediaFiles = 0;
   for (const entry of entries) {
     if (!showHidden && isHidden(entry.name)) continue;

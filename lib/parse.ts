@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { ParsedMedia } from './types.ts';
 
 export const VIDEO_EXTENSIONS = new Set([
   '.3gp', '.avi', '.divx', '.flv', '.m2ts', '.m4v', '.mkv', '.mov', '.mp4', '.mpeg', '.mpg', '.mts', '.ogv', '.ts',
@@ -26,17 +27,17 @@ const TV_PATTERNS = [
 
 const SEASON_FOLDER = /^(season|series|staffel|saison)\s*\d+$|^specials?$/i;
 
-export function isMediaFile(fileName) {
+export function isMediaFile(fileName: string) {
   const extension = path.extname(fileName).toLowerCase();
   return VIDEO_EXTENSIONS.has(extension) || SUBTITLE_EXTENSIONS.has(extension);
 }
 
-export function isVideoFile(fileName) {
+export function isVideoFile(fileName: string) {
   return VIDEO_EXTENSIONS.has(path.extname(fileName).toLowerCase());
 }
 
 /** A folder that holds release samples, e.g. "Sample" or "Samples". */
-export function isSampleFolder(name) {
+export function isSampleFolder(name: string) {
   return SAMPLE_FOLDER.test(name);
 }
 
@@ -44,18 +45,18 @@ export function isSampleFolder(name) {
  * A release sample: inside a Sample(s) folder, or "sample" as a separate word
  * in the file name (sample.mkv, movie-sample.mkv, Movie.2010.SAMPLE.mkv).
  */
-export function isSamplePath(relPath) {
+export function isSamplePath(relPath: string) {
   const parts = relPath.split(/[\\/]/);
-  const fileName = parts.pop();
+  const fileName = parts.pop()!;
   if (parts.some(isSampleFolder)) return true;
   return SAMPLE_NAME.test(path.basename(fileName, path.extname(fileName)));
 }
 
-function normalize(text) {
+function normalize(text: string) {
   return text.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function cleanTitle(text) {
+function cleanTitle(text: string) {
   let title = text.replace(/\[[^\]]*\]|\{[^}]*\}/g, ' ');
   const tag = title.match(RELEASE_TAGS);
   if (tag) title = title.slice(0, tag.index);
@@ -65,10 +66,10 @@ function cleanTitle(text) {
     .trim();
 }
 
-function splitTitleYear(text) {
+function splitTitleYear(text: string): { title: string; year: number | null } {
   const maxYear = new Date().getFullYear() + 1;
   const yearPattern = /(^|[\s([])((?:19|20)\d{2})(?=$|[\s)\]])/g;
-  let chosen = null;
+  let chosen: RegExpExecArray | null = null;
   for (const match of text.matchAll(yearPattern)) {
     const year = Number(match[2]);
     if (match.index + match[1].length > 0 && year <= maxYear) chosen = match;
@@ -77,7 +78,7 @@ function splitTitleYear(text) {
   return { title: cleanTitle(text.slice(0, chosen.index)), year: Number(chosen[2]) };
 }
 
-function seriesFromFolders(folderNames) {
+function seriesFromFolders(folderNames: string[]) {
   for (const folder of folderNames) {
     const name = normalize(folder);
     if (!name || SEASON_FOLDER.test(name)) continue;
@@ -91,12 +92,12 @@ function seriesFromFolders(folderNames) {
  * folderNames lists parent directories from nearest to farthest and is used
  * when an episode file name carries no series name.
  */
-export function parseMediaFile(fileName, { folderNames = [] } = {}) {
+export function parseMediaFile(fileName: string, { folderNames = [] }: { folderNames?: string[] } = {}): ParsedMedia {
   const rawExtension = path.extname(fileName);
   const extension = rawExtension.toLowerCase();
   const isSubtitle = SUBTITLE_EXTENSIONS.has(extension);
   let base = path.basename(fileName, rawExtension);
-  let language = null;
+  let language: string | null = null;
 
   if (isSubtitle) {
     const match = base.match(/[._ -]([a-z]{2,3})$/i);
@@ -112,15 +113,15 @@ export function parseMediaFile(fileName, { folderNames = [] } = {}) {
   for (const pattern of TV_PATTERNS) {
     const match = text.match(pattern);
     if (!match) continue;
-    let { title, year } = splitTitleYear(match.groups.name);
+    let { title, year } = splitTitleYear(match.groups!.name);
     if (!title) ({ title, year } = seriesFromFolders(folderNames));
     return {
       kind: 'episode',
       title,
       year,
-      season: Number(match.groups.season),
-      episode: Number(match.groups.episode),
-      episodeEnd: match.groups.episodeEnd ? Number(match.groups.episodeEnd) : null,
+      season: Number(match.groups!.season),
+      episode: Number(match.groups!.episode),
+      episodeEnd: match.groups!.episodeEnd ? Number(match.groups!.episodeEnd) : null,
       ...common,
     };
   }

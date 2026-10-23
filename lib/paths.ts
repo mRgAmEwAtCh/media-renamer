@@ -3,18 +3,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { InputError } from './errors.ts';
 
-export const toPosix = (value) => value.split(path.sep).join('/');
+export const toPosix = (value: string): string => value.split(path.sep).join('/');
 
 /** True when `target` is `root` itself or inside it. */
-export function isWithin(root, target) {
+export function isWithin(root: string, target: string): boolean {
   const relative = path.relative(root, target);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 /** Resolve an existing folder to its real (symlink-free) absolute path. */
-export async function resolveRoot(input) {
+export async function resolveRoot(input: unknown): Promise<string> {
   if (typeof input !== 'string' || !input.trim()) throw new InputError('A folder path is required');
-  let root;
+  let root: string;
   try {
     root = await fs.realpath(path.resolve(input.trim()));
   } catch {
@@ -25,14 +25,14 @@ export async function resolveRoot(input) {
 }
 
 /** Resolve an optional destination folder; null means "rename in place". */
-export async function resolveTarget(root, input) {
+export async function resolveTarget(root: string, input: unknown): Promise<string | null> {
   if (input === undefined || input === null || (typeof input === 'string' && !input.trim())) return null;
   const target = await resolveRoot(input);
   return target === root ? null : target;
 }
 
 /** Resolve a root-relative path and refuse anything that escapes the root. */
-export function resolveInside(root, rel) {
+export function resolveInside(root: string, rel: unknown): string {
   if (typeof rel !== 'string' || !rel.trim()) throw new InputError('Empty file path');
   const absolute = path.resolve(root, rel);
   const relative = path.relative(root, absolute);
@@ -43,7 +43,7 @@ export function resolveInside(root, rel) {
 }
 
 /** Convert a caller path (absolute, or relative to root) into a normalized root-relative path. */
-export function toRootRelative(root, input) {
+export function toRootRelative(root: string, input: string): string {
   let absolute = path.resolve(root, input);
   if (path.isAbsolute(input) && path.relative(root, absolute).startsWith('..')) {
     try {

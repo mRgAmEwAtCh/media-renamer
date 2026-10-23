@@ -3,14 +3,54 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { configDir, envSettings, settingsFilePath } from './settings.ts';
+import type { AudioTools, Filters, Settings } from './types.ts';
 
 export { envFlag, filterDefaults } from './settings.ts';
+
+type Env = NodeJS.ProcessEnv;
+
+/** One MEDIA_RENAMER_PATH_MAP entry: paths under `from` are read from `to`. */
+export interface PathMapping {
+  from: string;
+  to: string;
+}
+
+/** What startServer accepts to override HOST and PORT. */
+export interface ConfigOverrides {
+  host?: string;
+  port?: number;
+}
+
+/** Server settings returned by loadConfig. */
+export interface Config {
+  host: string;
+  port: number;
+  roots: string[];
+  /** null accepts any Host header. */
+  allowedHosts: Set<string> | null;
+  password: string;
+  tmdbKey: string;
+  envSettings: Settings;
+  settingsFile: string;
+  jobsFile: string;
+  pushFile: string;
+  hookToken: string;
+  pathMap: PathMapping[];
+  stableSeconds: number;
+  audioTools: AudioTools;
+  filters: Filters;
+  language: string;
+  region: string | null;
+  shutdownGraceMs: number;
+  umask: number | null;
+  warnings: string[];
+}
 
 const PROJECT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1']);
 
-const list = (value) =>
+const list = (value: unknown): string[] =>
   String(value ?? '')
     .split(',')
     .map((item) => item.trim())
@@ -20,7 +60,7 @@ const list = (value) =>
  * Load KEY=value pairs from MEDIA_RENAMER_ENV_FILE or the project's .env file.
  * Variables already present in the environment always win.
  */
-export function loadEnvFile(env = process.env) {
+export function loadEnvFile(env: Env = process.env): string | null {
   const file = env.MEDIA_RENAMER_ENV_FILE || path.join(PROJECT_DIR, '.env');
   if (!existsSync(file)) {
     if (env.MEDIA_RENAMER_ENV_FILE) throw new Error(`MEDIA_RENAMER_ENV_FILE not found: ${file}`);
@@ -33,14 +73,14 @@ export function loadEnvFile(env = process.env) {
 }
 
 /** Read VAR, or the contents of VAR_FILE (Docker secrets style). */
-export function readSecret(env, name) {
+export function readSecret(env: Env, name: string): string {
   if (env[name]) return env[name];
   const file = env[`${name}_FILE`];
   if (!file) return '';
   try {
     return readFileSync(file, 'utf8').trim();
   } catch (error) {
-    throw new Error(`Cannot read ${name}_FILE (${file}): ${error.message}`);
+    throw new Error(`Cannot read ${name}_FILE (${file}): ${(error as Error).message}`);
   }
 }
 
@@ -65,7 +105,7 @@ export function readSecret(env, name) {
  *
  * Naming, destination, language and filter defaults are read by envSettings() in settings.js.
  */
-export function loadConfig(env = process.env, overrides = {}) {
+export function loadConfig(env: Env = process.env, overrides: ConfigOverrides = {}): Config {
   const host = overrides.host ?? env.HOST ?? '127.0.0.1';
   const port = overrides.port ?? Number(env.PORT ?? 4173);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid PORT: ${env.PORT}`);
@@ -79,7 +119,7 @@ export function loadConfig(env = process.env, overrides = {}) {
   const publicBind = !LOOPBACK_BIND.has(host);
   const anyHost = configuredHosts.includes('*') || (publicBind && configuredHosts.length === 0);
 
-  let umask = null;
+  let umask: number | null = null;
   if (env.UMASK) {
     if (!/^[0-7]{3,4}$/.test(env.UMASK)) throw new Error(`Invalid UMASK (expected octal like 002): ${env.UMASK}`);
     umask = Number.parseInt(env.UMASK, 8);
@@ -129,7 +169,7 @@ export function loadConfig(env = process.env, overrides = {}) {
 }
 
 /** Parse MEDIA_RENAMER_PATH_MAP ("/Downloads=/media/Downloads,…"), longest prefix first. */
-export function parsePathMap(value) {
+export function parsePathMap(value: unknown): PathMapping[] {
   return list(value)
     .map((pair) => {
       const separator = pair.indexOf('=');
@@ -144,7 +184,7 @@ export function parsePathMap(value) {
 }
 
 /** Translate a path as seen by another container (e.g. JDownloader) into ours. */
-export function mapPath(input, pathMap) {
+export function mapPath(input: string, pathMap: readonly PathMapping[]): string {
   const resolved = path.resolve(input);
   for (const { from, to } of pathMap) {
     if (resolved === from || resolved.startsWith(`${from}${path.sep}`)) return path.join(to, path.relative(from, resolved));
@@ -153,7 +193,7 @@ export function mapPath(input, pathMap) {
 }
 
 /** Hostname from a Host header, without port; IPv6 brackets removed. */
-export function hostnameOf(hostHeader) {
+export function hostnameOf(hostHeader: string | undefined): string {
   const value = String(hostHeader ?? '').trim().toLowerCase();
   if (value.startsWith('[')) return value.slice(1, value.indexOf(']'));
   return value.replace(/:\d+$/, '');

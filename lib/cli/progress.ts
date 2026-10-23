@@ -1,13 +1,28 @@
+import type { Progress, ProgressListener } from '../types.ts';
 import { formatBytes } from '../units.ts';
+import type { CliValues } from './args.ts';
+import type { Output } from './output.ts';
+
+export interface ProgressReporter {
+  update: ProgressListener;
+  end: () => void;
+}
+
+/** What a task run by `runWithProgress` receives. */
+export interface ProgressTaskOptions {
+  signal: AbortSignal;
+  onProgress: ProgressListener;
+  reporter: ProgressReporter;
+}
 
 /** Progress on stderr: a live line on a terminal, one line per file otherwise. */
-export function createProgressReporter(values) {
+export function createProgressReporter(values: Pick<CliValues, 'quiet'>): ProgressReporter {
   if (values.quiet) return { update() {}, end() {} };
   const live = process.stderr.isTTY;
-  let lastFile = null;
+  let lastFile: string | null = null;
   let lastDraw = 0;
   return {
-    update(p) {
+    update(p: Progress) {
       if (!p.current) return;
       if (!live) {
         if (p.current.from !== lastFile) process.stderr.write(`[${p.filesDone + 1}/${p.filesTotal}] ${p.current.from} → ${p.current.to}\n`);
@@ -29,7 +44,7 @@ export function createProgressReporter(values) {
 }
 
 /** Run a job with Ctrl-C/SIGTERM wired to a clean cancel. */
-async function runCancellable(output, task) {
+async function runCancellable<T>(output: Output, task: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   const cancel = () => {
     if (controller.signal.aborted) return;
@@ -47,7 +62,11 @@ async function runCancellable(output, task) {
 }
 
 /** Run a cancellable job that reports progress: `task({ signal, onProgress })`. */
-export async function runWithProgress(values, output, task) {
+export async function runWithProgress<T>(
+  values: Pick<CliValues, 'quiet'>,
+  output: Output,
+  task: (options: ProgressTaskOptions) => Promise<T>,
+): Promise<T> {
   const reporter = createProgressReporter(values);
   try {
     return await runCancellable(output, (signal) => task({ signal, onProgress: reporter.update, reporter }));

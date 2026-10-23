@@ -1,9 +1,26 @@
+import type { AudioPlan, Progress, ProgressListener } from '../types.ts';
+
+/** A file being moved, as far as progress reporting cares. */
+export interface ProgressItem {
+  from: string;
+  to: string;
+  size: number;
+  audio?: AudioPlan | null;
+}
+
+export interface ProgressTracker {
+  state: Progress;
+  start(item: ProgressItem): void;
+  bytes(done: number): void;
+  finish(item: ProgressItem): void;
+}
+
 /**
  * Shared progress bookkeeping for apply and undo. `items` need `from`, `to`
  * and `size` (bytes); `onProgress` receives a copy of the state on each change.
  */
-export function createProgress(items, onProgress) {
-  const state = {
+export function createProgress(items: readonly ProgressItem[], onProgress?: ProgressListener): ProgressTracker {
+  const state: Progress = {
     filesTotal: items.length,
     filesDone: 0,
     bytesTotal: items.reduce((sum, item) => sum + item.size, 0),
@@ -18,7 +35,7 @@ export function createProgress(items, onProgress) {
       emit();
     },
     bytes(done) {
-      state.current.bytesDone = done;
+      state.current!.bytesDone = done;
       emit();
     },
     finish(item) {
@@ -31,4 +48,4 @@ export function createProgress(items, onProgress) {
 }
 
 /** True once either signal asks the job to stop. */
-export const stopRequested = ({ signal, stopSignal }) => Boolean(signal?.aborted || stopSignal?.aborted);
+export const stopRequested = ({ signal, stopSignal }: { signal?: AbortSignal; stopSignal?: AbortSignal }): boolean => Boolean(signal?.aborted || stopSignal?.aborted);

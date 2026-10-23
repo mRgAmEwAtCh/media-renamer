@@ -1,4 +1,11 @@
+import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from 'node:http';
 import { InputError } from '../errors.ts';
+
+/** A parsed request body; its fields are unchecked client input. */
+export type RequestBody = Record<string, unknown>;
+/** A POST /api/… handler; its result is sent as JSON. */
+export type Route = (body: RequestBody) => Promise<unknown>;
+export type Routes = Record<string, Route>;
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const JSON_TYPE = 'application/json; charset=utf-8';
@@ -10,15 +17,15 @@ const SECURITY_HEADERS = {
 };
 
 /** Send a response; JSON bodies are serialised. */
-export function send(response, status, body, contentType = JSON_TYPE, headers = {}) {
+export function send(response: ServerResponse, status: number, body: unknown, contentType: string = JSON_TYPE, headers: OutgoingHttpHeaders = {}): void {
   response.writeHead(status, { ...SECURITY_HEADERS, ...headers, 'Content-Type': contentType });
-  response.end(contentType.startsWith('application/json') ? JSON.stringify(body) : body);
+  response.end(contentType.startsWith('application/json') ? JSON.stringify(body) : (body as string | Buffer));
 }
 
-export const redirect = (response, location) => send(response, 302, '', 'text/plain', { Location: location });
+export const redirect = (response: ServerResponse, location: string): void => send(response, 302, '', 'text/plain', { Location: location });
 
-async function readRaw(request) {
-  const chunks = [];
+async function readRaw(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
@@ -28,7 +35,7 @@ async function readRaw(request) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-export async function readJson(request) {
+export async function readJson(request: IncomingMessage): Promise<RequestBody> {
   if (!String(request.headers['content-type'] ?? '').startsWith('application/json')) {
     throw new InputError('Content-Type must be application/json', { status: 415 });
   }
@@ -41,7 +48,7 @@ export async function readJson(request) {
 }
 
 /** JSON, or a form post such as `curl --data-urlencode "ARCHIVE_PATH=…"`. */
-export async function readJsonOrForm(request) {
+export async function readJsonOrForm(request: IncomingMessage): Promise<RequestBody> {
   const type = String(request.headers['content-type'] ?? '');
   if (type.startsWith('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(await readRaw(request)));
   return readJson(request);

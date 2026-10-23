@@ -1,26 +1,45 @@
 import path from 'node:path';
 import { activeTargets } from '../settings.ts';
+import type { DoneRename, SavedSettingsFile, Settings, Targets } from '../types.ts';
 import { EXIT, UsageError } from './args.ts';
+import type { CliValues } from './args.ts';
+import type { CliContext } from './context.ts';
+import type { PlanItem } from './plan.ts';
 
 const FORMATS = ['table', 'json', 'jsonl', 'tsv'];
+
+/** How `emit` renders one list of rows in each output format. */
+export interface EmitFormat<Row> {
+  document: () => unknown;
+  fields: (row: Row, index: number) => unknown[];
+  line: (row: Row, index: number) => string;
+}
+
+export type Output = ReturnType<typeof createOutput>;
+
+/** What `printItems` and `printRenames` need from the command context. */
+type PrintContext = Pick<CliContext, 'root' | 'targets'>;
+
+/** A rename as printed: files move from `from` (in the root) to `to` (in `target`, or the root). */
+type RenameLike = Pick<DoneRename, 'from' | 'to'> & { target?: string | null };
 
 /**
  * stdout/stderr for one command run. `emit(rows, { document, fields, line })`
  * prints rows in the chosen format: `document()` for json, each row for jsonl,
  * `fields(row, index)` for tsv and `line(row, index)` for the table.
  */
-export function createOutput(values) {
+export function createOutput(values: Pick<CliValues, 'format' | 'null' | 'quiet'>) {
   const format = values.format ?? (process.stdout.isTTY ? 'table' : 'json');
   if (!FORMATS.includes(format)) throw new UsageError(`--format must be one of: ${FORMATS.join(', ')}`);
   const separator = values.null ? '\0' : '\n';
-  const write = (text) => process.stdout.write(text);
-  const record = (fields) => write(`${fields.map((f) => String(f ?? '')).join('\t')}${separator}`);
+  const write = (text: string) => process.stdout.write(text);
+  const record = (fields: unknown[]) => write(`${fields.map((f) => String(f ?? '')).join('\t')}${separator}`);
   return {
     format,
-    log: (message) => values.quiet || process.stderr.write(`${message}\n`),
+    log: (message: string) => values.quiet || process.stderr.write(`${message}\n`),
     write,
     record,
-    emit(rows, { document, fields, line }) {
+    emit<Row>(rows: Row[], { document, fields, line }: EmitFormat<Row>) {
       if (format === 'json') return write(`${JSON.stringify(document(), null, 2)}\n`);
       if (format === 'jsonl') return rows.forEach((row) => write(`${JSON.stringify(row)}\n`));
       if (format === 'tsv') return rows.forEach((row, index) => record(fields(row, index)));
@@ -30,17 +49,18 @@ export function createOutput(values) {
 }
 
 /** A root-relative path as shown: absolute with --absolute. */
-export const display = (base, rel, absolute) => (rel && absolute ? path.join(base, rel) : rel);
+export const display = <Rel extends string | null>(base: string, rel: Rel, absolute: boolean | undefined): Rel | string =>
+  rel && absolute ? path.join(base, rel) : rel;
 
-export const describeTarget = (target) => target ?? 'rename in place';
+export const describeTarget = (target: string | null | undefined): string => target ?? 'rename in place';
 
-export function describeTargets(targets) {
+export function describeTargets(targets: Targets): string {
   if (!targets.episode && !targets.movie) return '';
   return ` Destinations: TV → ${describeTarget(targets.episode)}, movies → ${describeTarget(targets.movie)}`;
 }
 
-export function logExcluded(excluded, output) {
-  const parts = [];
+export function logExcluded(excluded: { samples: number; nonVideo: number }, output: Output): void {
+  const parts: string[] = [];
   if (excluded.samples) parts.push(`${excluded.samples} sample file(s)`);
   if (excluded.nonVideo) parts.push(`${excluded.nonVideo} non-video file(s)`);
   if (parts.length) output.log(`Skipped ${parts.join(' and ')} (filters)`);
@@ -49,7 +69,7 @@ export function logExcluded(excluded, output) {
 const INDENT = ' '.repeat(10);
 
 /** Preview items: status, old name, new name and match notes. */
-export function printItems(ctx, items, values, output) {
+export function printItems(ctx: PrintContext, items: PlanItem[], values: CliValues, output: Output): void {
   const shown = items.map((item) => ({
     ...item,
     rel: display(ctx.root, item.rel, values.absolute),
@@ -69,13 +89,19 @@ export function printItems(ctx, items, values, output) {
     },
   });
   if (output.format === 'table') {
-    const counts = Object.entries(Object.groupBy(items, (i) => i.status)).map(([status, list]) => `${list.length} ${status}`);
+    const counts = Object.entries(Object.groupBy(items, (i) => i.status)).map(([status, list]) => `${list!.length} ${status}`);
     output.log(`\n${counts.join(', ') || 'no files'}`);
   }
 }
 
 /** Completed (or planned) moves; `reverse` for undo, where files come back from their destination. */
-export function printRenames(ctx, result, values, output, { reverse = false } = {}) {
+export function printRenames<Result extends { renames: readonly RenameLike[] }>(
+  ctx: PrintContext,
+  result: Result,
+  values: CliValues,
+  output: Output,
+  { reverse = false }: { reverse?: boolean } = {},
+): void {
   const renames = result.renames.map((rename) => {
     const destination = rename.target ?? ctx.root;
     const [fromBase, toBase] = reverse ? [destination, ctx.root] : [ctx.root, destination];
@@ -90,22 +116,25 @@ export function printRenames(ctx, result, values, output, { reverse = false } = 
     fields: (r) => [r.from, r.to, r.target ?? ''],
     line: (r, index) => {
       const { target } = result.renames[index];
-      const inTarget = (rel) => (target && !values.absolute ? path.join(target, rel) : rel);
+      const inTarget = (rel: string) => (target && !values.absolute ? path.join(target, rel) : rel);
       return reverse ? `${inTarget(r.from)}\n  → ${r.to}\n` : `${r.from}\n  → ${inTarget(r.to)}\n`;
     },
   });
 }
 
-export function printSettings({ file, saved, defaults, effective }, output) {
+export function printSettings(
+  { file, saved, defaults, effective }: { file: string; saved: SavedSettingsFile; defaults: Settings; effective: Settings },
+  output: Output,
+): number {
   if (output.format === 'json' || output.format === 'jsonl') {
     const document = { file, saved: saved.exists, savedAt: saved.savedAt, settings: effective, defaults, problems: saved.problems };
     output.write(`${JSON.stringify(document, null, output.format === 'json' ? 2 : 0)}\n`);
     return EXIT.ok;
   }
-  const yesNo = (value) => (value ? 'yes' : 'no');
+  const yesNo = (value: boolean) => (value ? 'yes' : 'no');
   const targets = activeTargets(effective);
   const savedNote = saved.exists ? (saved.savedAt ? ` (saved ${saved.savedAt})` : '') : ' (not saved; environment/built-in defaults)';
-  const rows = [
+  const rows: [string, string][] = [
     ['settings file', `${file}${savedNote}`],
     ['episode pattern', effective.patterns.episode],
     ['movie pattern', effective.patterns.movie],

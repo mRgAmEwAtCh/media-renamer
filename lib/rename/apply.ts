@@ -6,12 +6,52 @@ import { InputError } from '../errors.ts';
 import { exists } from '../fs-utils.ts';
 import { isCancellation, moveFile, partialPathFor } from '../mover.ts';
 import { resolveInside, toRootRelative } from '../paths.ts';
+import type {
+  ApplyResult,
+  AudioPlan,
+  AudioTools,
+  DoneRename,
+  FailedRename,
+  JournalBatch,
+  JournalEntry,
+  ProgressListener,
+  RenameRequest,
+} from '../types.ts';
 import { readUndoLog, recoverInterrupted, sharedTarget, writeUndoLog } from './journal.ts';
 import { acquireLock } from './lock.ts';
 import { createProgress, stopRequested } from './progress.ts';
 
+/** How audio conversions run: the ffmpeg/ffprobe binaries and the target bitrate. */
+export interface ApplyAudioOptions {
+  tools?: Partial<AudioTools>;
+  bitrate?: string;
+}
+
+export interface ApplyOptions {
+  /** Destination for renames that do not name their own `target`. */
+  target?: string | null;
+  audio?: ApplyAudioOptions;
+  signal?: AbortSignal;
+  stopSignal?: AbortSignal;
+  onProgress?: ProgressListener;
+  /** Shown to other jobs that find the folder locked. */
+  owner?: string;
+}
+
+/** A validated rename with absolute paths. */
+interface PlannedRename {
+  from: string;
+  to: string;
+  target: string | null;
+  fromAbsolute: string;
+  toAbsolute: string;
+  caseOnly: boolean;
+  size: number;
+  audio: AudioPlan | null;
+}
+
 /** The absolute destination folder of one rename: its own `target`, else `fallback`, else root. */
-function destinationOf(root, rename, fallback) {
+function destinationOf(root: string, rename: RenameRequest, fallback: string | null | undefined): string {
   const requested = rename && Object.hasOwn(rename, 'target') ? rename.target : fallback;
   if (requested !== null && requested !== undefined && (typeof requested !== 'string' || !path.isAbsolute(requested))) {
     throw new InputError(`Destination must be an absolute folder: ${requested}`);
@@ -20,10 +60,10 @@ function destinationOf(root, rename, fallback) {
 }
 
 /** Validate every rename up front; nothing moves unless the whole list is sound. */
-async function planRenames(root, renames, fallbackTarget) {
-  const planned = [];
-  const sources = new Set();
-  const targets = new Set();
+async function planRenames(root: string, renames: readonly RenameRequest[], fallbackTarget: string | null): Promise<PlannedRename[]> {
+  const planned: PlannedRename[] = [];
+  const sources = new Set<string>();
+  const targets = new Set<string>();
   for (const rename of renames) {
     const destination = destinationOf(root, rename, fallbackTarget);
     const sameRoot = destination === root;
@@ -58,7 +98,11 @@ async function planRenames(root, renames, fallbackTarget) {
 }
 
 /** Move (or convert and move) one planned file; marks `entry.converted` for audio conversions. */
-async function transfer(item, entry, { audio, signal, partialPath, onBytes }) {
+async function transfer(
+  item: PlannedRename,
+  entry: JournalEntry,
+  { audio, signal, partialPath, onBytes }: { audio: ApplyAudioOptions; signal?: AbortSignal; partialPath: string; onBytes: (bytes: number) => void },
+): Promise<void> {
   await fs.mkdir(path.dirname(item.toAbsolute), { recursive: true });
   if (!item.caseOnly && (await exists(item.toAbsolute))) throw new Error('Target appeared after the preview');
   if (item.audio) {
@@ -70,16 +114,20 @@ async function transfer(item, entry, { audio, signal, partialPath, onBytes }) {
 }
 
 /** Run the planned moves as one journalled batch; the caller holds the folder lock. */
-async function runBatch(root, planned, { audio, signal, stopSignal, onProgress }) {
+async function runBatch(
+  root: string,
+  planned: PlannedRename[],
+  { audio, signal, stopSignal, onProgress }: { audio: ApplyAudioOptions; signal?: AbortSignal; stopSignal?: AbortSignal; onProgress?: ProgressListener },
+): Promise<{ done: DoneRename[]; failed: FailedRename[]; cancelled: boolean }> {
   const log = await readUndoLog(root);
   await recoverInterrupted(root, log);
-  const batch = { id: randomUUID(), at: new Date().toISOString(), status: 'running', renames: [] };
+  const batch: JournalBatch = { id: randomUUID(), at: new Date().toISOString(), status: 'running', renames: [] };
   log.push(batch);
   await writeUndoLog(root, log);
 
   const progress = createProgress(planned, onProgress);
-  const done = [];
-  const failed = [];
+  const done: DoneRename[] = [];
+  const failed: FailedRename[] = [];
   let cancelled = false;
   for (const item of planned) {
     if (stopRequested({ signal, stopSignal })) {
@@ -88,7 +136,7 @@ async function runBatch(root, planned, { audio, signal, stopSignal, onProgress }
     }
     progress.start(item);
     const partialPath = partialPathFor(item.toAbsolute);
-    const entry = { from: item.from, to: item.to, ...(item.target && { target: item.target }), state: 'pending', partial: path.basename(partialPath) };
+    const entry: JournalEntry = { from: item.from, to: item.to, ...(item.target && { target: item.target }), state: 'pending', partial: path.basename(partialPath) };
     batch.renames.push(entry);
     await writeUndoLog(root, log);
     try {
@@ -103,7 +151,7 @@ async function runBatch(root, planned, { audio, signal, stopSignal, onProgress }
         await writeUndoLog(root, log);
         break;
       }
-      failed.push({ from: item.from, to: item.to, target: item.target, reason: error.message });
+      failed.push({ from: item.from, to: item.to, target: item.target, reason: (error as Error).message });
     }
     await writeUndoLog(root, log);
     progress.finish(item);
@@ -127,10 +175,14 @@ async function runBatch(root, planned, { audio, signal, stopSignal, onProgress }
  * `signal` stops during the current file (its partial copy is removed and the
  * original stays in place); `stopSignal` stops only between files.
  */
-export async function applyRenames(root, renames, { target = null, audio = {}, signal, stopSignal, onProgress, owner = 'media-renamer' } = {}) {
+export async function applyRenames(
+  root: string,
+  renames: readonly RenameRequest[],
+  { target = null, audio = {}, signal, stopSignal, onProgress, owner = 'media-renamer' }: ApplyOptions = {},
+): Promise<ApplyResult> {
   if (!Array.isArray(renames) || renames.length === 0) throw new InputError('Nothing to rename');
   const planned = await planRenames(root, renames, target);
-  const destinations = [...new Set(planned.map((item) => item.target).filter(Boolean))];
+  const destinations = [...new Set(planned.map((item) => item.target).filter(Boolean) as string[])];
   const summary = { target: sharedTarget(root, planned.map((item) => item.target ?? root)), targets: destinations };
   if (planned.length === 0) return { renamed: 0, failed: [], cancelled: false, ...summary, renames: [] };
 

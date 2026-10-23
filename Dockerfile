@@ -13,14 +13,14 @@ WORKDIR /app
 # ffmpeg/ffprobe for the optional audio fix (adds E-AC-3 tracks next to DTS tracks).
 RUN apk add --no-cache ffmpeg
 
-# No npm dependencies: copy only the application. Secrets (.env) are excluded by .dockerignore.
-COPY package.json server.js ./
+# No runtime npm dependencies: copy only the application. Node runs the .ts files directly. Secrets (.env) are excluded by .dockerignore.
+COPY package.json server.ts ./
 COPY bin ./bin
 COPY lib ./lib
 COPY public ./public
 
-RUN chmod 0755 bin/media-renamer.js \
- && ln -s /app/bin/media-renamer.js /usr/local/bin/media-renamer \
+RUN chmod 0755 bin/media-renamer.ts \
+ && ln -s /app/bin/media-renamer.ts /usr/local/bin/media-renamer \
  && mkdir -p /media /config
 
 # Saved settings (patterns, destinations, …) live here; mount a writable folder to keep them.

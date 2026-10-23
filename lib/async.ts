@@ -1,8 +1,8 @@
 import { CancelledError } from './mover.ts';
 
 /** Resolve after `ms`; rejects with CancelledError as soon as `signal` aborts. */
-export function sleep(ms, signal) {
-  return new Promise((resolve, reject) => {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) return reject(new CancelledError());
     const onAbort = () => {
       clearTimeout(timer);
@@ -17,8 +17,8 @@ export function sleep(ms, signal) {
 }
 
 /** Like Promise.all(items.map(worker)), but with at most `limit` workers running at once. */
-export async function mapLimit(items, limit, worker) {
-  const results = new Array(items.length);
+export async function mapLimit<T, R>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
   let next = 0;
   const run = async () => {
     while (next < items.length) {

@@ -12,6 +12,8 @@ const PROGRESS_INTERVAL_MS = 250;
 const STALE_PARTIAL_MS = 5 * 60 * 1000;
 
 export class CancelledError extends Error {
+  code: string;
+
   constructor(message = 'Cancelled') {
     super(message);
     this.name = 'CancelledError';
@@ -19,22 +21,30 @@ export class CancelledError extends Error {
   }
 }
 
-export const isCancellation = (error) => error?.code === 'ECANCELLED' || error?.name === 'AbortError';
+export const isCancellation = (error: unknown): boolean =>
+  (error as { code?: unknown } | null | undefined)?.code === 'ECANCELLED' || (error as { name?: unknown } | null | undefined)?.name === 'AbortError';
 
 /** Hidden temporary path next to `to`, used while copying across filesystems. */
-export function partialPathFor(to) {
+export function partialPathFor(to: string) {
   return path.join(path.dirname(to), `${PARTIAL_PREFIX}${randomUUID()}${path.extname(to)}`);
 }
 
-function throwIfCancelled(signal) {
+function throwIfCancelled(signal: AbortSignal | undefined) {
   if (signal?.aborted) throw new CancelledError();
 }
 
-async function copyWithProgress(from, to, { size, signal, onProgress }) {
+/** Called with bytes copied so far and the total size. */
+export type ByteProgress = (done: number, total: number) => void;
+
+async function copyWithProgress(
+  from: string,
+  to: string,
+  { size, signal, onProgress }: { size: number; signal?: AbortSignal; onProgress?: ByteProgress },
+) {
   let done = 0;
   let lastReport = 0;
   const counter = new Transform({
-    transform(chunk, _encoding, callback) {
+    transform(chunk: Buffer, _encoding, callback) {
       done += chunk.length;
       const now = Date.now();
       if (onProgress && now - lastReport >= PROGRESS_INTERVAL_MS) {
@@ -55,19 +65,26 @@ async function copyWithProgress(from, to, { size, signal, onProgress }) {
 }
 
 /** Give `temp` its final name without ever replacing an existing file. */
-export async function commitNoOverwrite(temp, to) {
+export async function commitNoOverwrite(temp: string, to: string) {
   try {
     await fs.link(temp, to); // fails with EEXIST instead of overwriting
     await fs.unlink(temp);
     return;
   } catch (error) {
-    if (error.code === 'EEXIST') throw error;
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw error;
     // Filesystems without hard links (some FUSE/SMB mounts): check, then rename.
   }
   if (await fs.lstat(to).then(() => true, () => false)) {
     throw Object.assign(new Error(`Target already exists: ${to}`), { code: 'EEXIST' });
   }
   await fs.rename(temp, to);
+}
+
+export interface MoveOptions {
+  rename?: (from: string, to: string) => Promise<void>;
+  signal?: AbortSignal;
+  onProgress?: ByteProgress;
+  partialPath?: string;
 }
 
 /**
@@ -77,7 +94,11 @@ export async function commitNoOverwrite(temp, to) {
  * original deleted. Cancelling (signal) or any failure removes the partial copy
  * and leaves the original untouched.
  */
-export async function moveFile(from, to, { rename = fs.rename, signal, onProgress, partialPath } = {}) {
+export async function moveFile(
+  from: string,
+  to: string,
+  { rename = fs.rename, signal, onProgress, partialPath }: MoveOptions = {},
+): Promise<'renamed' | 'copied'> {
   throwIfCancelled(signal);
   const source = await fs.stat(from);
   try {
@@ -85,7 +106,7 @@ export async function moveFile(from, to, { rename = fs.rename, signal, onProgres
     onProgress?.(source.size, source.size);
     return 'renamed';
   } catch (error) {
-    if (error.code !== 'EXDEV') throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
   }
 
   const temp = partialPath ?? partialPathFor(to);
@@ -110,7 +131,7 @@ export async function moveFile(from, to, { rename = fs.rename, signal, onProgres
  * Remove partial copies left behind by a crash or `docker stop`. Only files older
  * than five minutes are removed; an active copy keeps updating its mtime.
  */
-export async function sweepPartials(directories, { now = Date.now() } = {}) {
+export async function sweepPartials(directories: Iterable<string>, { now = Date.now() }: { now?: number } = {}) {
   let removed = 0;
   for (const directory of new Set(directories)) {
     let entries;

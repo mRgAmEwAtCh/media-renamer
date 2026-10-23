@@ -2,11 +2,14 @@ import path from 'node:path';
 import { audioToolsAvailable } from '../../audio.ts';
 import { listPlaces } from '../../browse.ts';
 import { nativeDialogAvailable } from '../../native-dialog.ts';
+import type { Settings } from '../../types.ts';
+import type { RouteContext } from '../context.ts';
+import type { RequestBody, Routes } from '../http.ts';
 import { deleteSavedSettings, mergeSettings, sanitizeSettings, writeSavedSettings } from '../../settings.ts';
 
 /** Server capabilities and the saved defaults. */
-export function settingsRoutes({ config, policy, currentSettings, allowedFolder }) {
-  const unsaved = (settings) => ({ settings, defaults: config.envSettings, saved: false, savedAt: null, problems: [] });
+export function settingsRoutes({ config, policy, currentSettings, allowedFolder }: RouteContext): Routes {
+  const unsaved = (settings: Settings) => ({ settings, defaults: config.envSettings, saved: false, savedAt: null, problems: [] });
 
   return {
     async '/api/places'() {
@@ -31,12 +34,12 @@ export function settingsRoutes({ config, policy, currentSettings, allowedFolder 
       };
     },
 
-    async '/api/settings/save'(body) {
+    async '/api/settings/save'(body: RequestBody) {
       const input = body.settings;
       const { settings } = sanitizeSettings(input, { strict: true });
       if (settings.targets) {
-        for (const kind of ['episode', 'movie']) {
-          if (Object.hasOwn(settings.targets, kind)) settings.targets[kind] = await allowedFolder(input.targets[kind]);
+        for (const kind of ['episode', 'movie'] as const) {
+          if (Object.hasOwn(settings.targets, kind)) settings.targets[kind] = await allowedFolder((input as { targets: Record<string, unknown> }).targets[kind]);
         }
       }
       const { savedAt } = await writeSavedSettings(config.settingsFile, settings);

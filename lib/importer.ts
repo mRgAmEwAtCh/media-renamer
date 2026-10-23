@@ -8,8 +8,22 @@ import { toPosix } from './paths.ts';
 import { stopRequested } from './rename/progress.ts';
 import { applyRenames, buildPreview, filterReason, scanFolder } from './renamer.ts';
 import { activeTargets } from './settings.ts';
+import type { AudioPlan, AudioTools, ImportResult, ImportRow, ItemStatus, JobControl, MetadataSource, PreviewItem, Settings, StepDefinition } from './types.ts';
 
-export const IMPORT_STEPS = [
+export interface RunImportOptions {
+  /** The allowed folder that contains `target`; the undo journal lives there. */
+  root: string;
+  target: string;
+  settings: Settings;
+  metadata: MetadataSource;
+  audioTools?: Partial<AudioTools>;
+  stableSeconds?: number;
+  dryRun?: boolean;
+  control: JobControl;
+  owner?: string;
+}
+
+export const IMPORT_STEPS: StepDefinition[] = [
   { id: 'wait', label: 'Wait until the files stop changing' },
   { id: 'scan', label: 'Scan for media files' },
   { id: 'lookup', label: 'Look up metadata' },
@@ -21,14 +35,15 @@ export const IMPORT_STEPS = [
 const POLL_MS = 2000;
 const WAIT_TIMEOUT_MS = 30 * 60 * 1000;
 
-async function fingerprint(target) {
+async function fingerprint(target: string): Promise<string> {
   const stat = await fs.stat(target);
   if (stat.isFile()) return `${stat.size}:${stat.mtimeMs}`;
   const entries = await fs.readdir(target, { withFileTypes: true, recursive: true });
   const parts = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    const file = path.join(entry.parentPath ?? entry.path, entry.name);
+    // `path` is the pre-`parentPath` name of the same field (removed from the Node types).
+    const file = path.join(entry.parentPath ?? (entry as typeof entry & { path: string }).path, entry.name);
     const fileStat = await fs.stat(file).catch(() => null);
     if (fileStat) parts.push(`${file}:${fileStat.size}:${fileStat.mtimeMs}`);
   }
@@ -36,7 +51,10 @@ async function fingerprint(target) {
 }
 
 /** Wait until nothing under `target` has changed for `seconds`. */
-export async function waitForStableFiles(target, { seconds, signal, pollMs = POLL_MS, timeoutMs = WAIT_TIMEOUT_MS } = {}) {
+export async function waitForStableFiles(
+  target: string,
+  { seconds, signal, pollMs = POLL_MS, timeoutMs = WAIT_TIMEOUT_MS }: { seconds?: number; signal?: AbortSignal; pollMs?: number; timeoutMs?: number } = {},
+): Promise<void> {
   if (!seconds) return;
   const started = Date.now();
   let last = await fingerprint(target);
@@ -53,9 +71,9 @@ export async function waitForStableFiles(target, { seconds, signal, pollMs = POL
 }
 
 /** Remove folders under `folder` (and `folder` itself) that are completely empty; never `root`. */
-export async function removeEmptyFolders(folder, root) {
+export async function removeEmptyFolders(folder: string, root: string): Promise<number> {
   let removed = 0;
-  async function visit(directory) {
+  async function visit(directory: string): Promise<boolean> {
     const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => null);
     if (!entries) return false;
     let empty = true;
@@ -72,8 +90,8 @@ export async function removeEmptyFolders(folder, root) {
   return removed;
 }
 
-const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
-const willChange = (item) => item.newRel && (item.target || item.newRel !== item.rel);
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+const willChange = (item: PreviewItem) => item.newRel && (item.target || item.newRel !== item.rel);
 
 /**
  * Import one downloaded folder or file: wait for it to settle, scan, look up
@@ -83,11 +101,21 @@ const willChange = (item) => item.newRel && (item.target || item.newRel !== item
  *
  * `root` is the allowed folder that contains `target`; the undo journal lives there.
  */
-export async function runImport({ root, target, settings, metadata, audioTools = {}, stableSeconds = 10, dryRun = false, control, owner = 'automatic import' }) {
+export async function runImport({
+  root,
+  target,
+  settings,
+  metadata,
+  audioTools = {},
+  stableSeconds = 10,
+  dryRun = false,
+  control,
+  owner = 'automatic import',
+}: RunImportOptions): Promise<ImportResult> {
   const { defineSteps, step, setFiles, signal, stopSignal, onProgress } = control;
   const automation = settings.automation;
   defineSteps(IMPORT_STEPS);
-  const skipRest = (from, detail) => {
+  const skipRest = (from: string, detail: string) => {
     for (const { id } of IMPORT_STEPS.slice(IMPORT_STEPS.findIndex((s) => s.id === from))) step(id, { state: 'skipped', detail });
   };
   const checkCancel = () => {
@@ -104,7 +132,7 @@ export async function runImport({ root, target, settings, metadata, audioTools =
     checkCancel();
 
     step('scan', { state: 'running' });
-    let files;
+    let files: string[];
     let excluded = { samples: 0, nonVideo: 0 };
     if (stat.isFile()) {
       const rel = toPosix(path.relative(root, target));
@@ -114,7 +142,7 @@ export async function runImport({ root, target, settings, metadata, audioTools =
     } else {
       const prefix = toPosix(path.relative(root, target));
       const scanned = await scanFolder(target, { recursive: true, ...settings.filters });
-      files = scanned.files.map((rel) => (prefix ? `${prefix}/${rel}` : rel));
+      files = scanned.files.map((rel: string) => (prefix ? `${prefix}/${rel}` : rel));
       excluded = scanned.excluded;
     }
     const skippedNote = [excluded.samples && plural(excluded.samples, 'sample'), excluded.nonVideo && `${excluded.nonVideo} non-video`].filter(Boolean);
@@ -128,8 +156,8 @@ export async function runImport({ root, target, settings, metadata, audioTools =
     step('lookup', { state: 'running', detail: `${plural(files.length, 'file')}` });
     const items = await buildPreview({ root, targets: activeTargets(settings), files, patterns: settings.patterns, filters: settings.filters, metadata });
     checkCancel();
-    const accepted = new Set(automation.includeWarnings ? ['ok', 'warning'] : ['ok']);
-    const rows = items.map((item) => {
+    const accepted = new Set<ItemStatus>(automation.includeWarnings ? ['ok', 'warning'] : ['ok']);
+    const rows = items.map((item: PreviewItem): ImportRow => {
       const selected = accepted.has(item.status) && willChange(item);
       return {
         rel: item.rel,
@@ -152,7 +180,7 @@ export async function runImport({ root, target, settings, metadata, audioTools =
       return { imported: 0, converted: 0, review: reviewCount, failed: 0, cancelled: false, targets: [] };
     }
 
-    const plans = new Map();
+    const plans = new Map<string, AudioPlan>();
     const audioFix = automation.audioFix;
     if (!audioFix.enabled) {
       step('audio', { state: 'skipped', detail: 'Audio fix is switched off' });
@@ -178,7 +206,7 @@ export async function runImport({ root, target, settings, metadata, audioTools =
           }
         } catch (error) {
           if (error instanceof CancelledError) throw error;
-          row.audio = `Could not read audio tracks (${error.message}); moved without conversion`;
+          row.audio = `Could not read audio tracks (${(error as Error).message}); moved without conversion`;
         }
       }
       setFiles(rows);
@@ -194,14 +222,14 @@ export async function runImport({ root, target, settings, metadata, audioTools =
     step('process', { state: 'running' });
     const result = await applyRenames(
       root,
-      selected.map((row) => ({ from: row.rel, to: row.newRel, target: row.target, audio: plans.get(row.rel) })),
+      selected.map((row) => ({ from: row.rel, to: row.newRel!, target: row.target, audio: plans.get(row.rel) })),
       { audio: { tools: audioTools, bitrate: audioFix.bitrate }, signal, stopSignal, onProgress, owner },
     );
     const done = new Map(result.renames.map((rename) => [rename.from, rename]));
     const failed = new Map(result.failed.map((failure) => [failure.from, failure]));
     for (const row of selected) {
-      if (done.has(row.rel)) row.outcome = done.get(row.rel).converted ? 'converted' : 'moved';
-      else if (failed.has(row.rel)) Object.assign(row, { outcome: 'failed', message: failed.get(row.rel).reason });
+      if (done.has(row.rel)) row.outcome = done.get(row.rel)!.converted ? 'converted' : 'moved';
+      else if (failed.has(row.rel)) Object.assign(row, { outcome: 'failed', message: failed.get(row.rel)!.reason });
       else row.outcome = 'not processed';
     }
     setFiles(rows);

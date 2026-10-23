@@ -4,21 +4,43 @@ import { InputError } from '../errors.ts';
 import { exists } from '../fs-utils.ts';
 import { isCancellation, moveFile } from '../mover.ts';
 import { resolveInside } from '../paths.ts';
+import type { DoneRename, FailedRename, JournalBatch, JournalEntry, ProgressListener, UndoResult } from '../types.ts';
 import { entryDestination, readUndoLog, recoverInterrupted, sharedTarget, writeUndoLog } from './journal.ts';
 import { acquireLock } from './lock.ts';
 import { createProgress, stopRequested } from './progress.ts';
 
-async function fileSize(file) {
+export interface UndoOptions {
+  /** Rejects (throws) for a recorded destination the caller may not touch. */
+  checkTarget?: (target: string) => unknown;
+  signal?: AbortSignal;
+  stopSignal?: AbortSignal;
+  onProgress?: ProgressListener;
+  /** Shown to other jobs that find the folder locked. */
+  owner?: string;
+}
+
+/** One file to move back, with absolute paths. */
+interface UndoMove {
+  entry: JournalEntry;
+  from: string;
+  to: string;
+  target: string | null;
+  fromAbsolute: string;
+  toAbsolute: string;
+  size: number;
+}
+
+async function fileSize(file: string): Promise<number> {
   return (await fs.stat(file).catch(() => null))?.size ?? 0;
 }
 
 /** Destination folders (other than root) of a batch's remaining entries. */
-const pendingDestinations = (root, batch) =>
+const pendingDestinations = (root: string, batch: JournalBatch): string[] =>
   [...new Set(batch.renames.filter((entry) => entry.state !== 'undone').map((entry) => entryDestination(root, batch, entry)))].filter((d) => d !== root);
 
 /** The moves that reverse a batch's remaining entries, newest first. */
-async function planUndo(root, batch) {
-  const moves = [];
+async function planUndo(root: string, batch: JournalBatch): Promise<UndoMove[]> {
+  const moves: UndoMove[] = [];
   for (const entry of batch.renames.filter((e) => e.state !== 'undone').reverse()) {
     const destination = entryDestination(root, batch, entry);
     const renamed = resolveInside(destination, entry.to);
@@ -39,7 +61,7 @@ async function planUndo(root, batch) {
  * Move one file back. Resolves 'restored', or 'dropped' for a pending entry
  * whose move never happened; throws with the reason the file was skipped.
  */
-async function restore(move, { signal, onBytes }) {
+async function restore(move: UndoMove, { signal, onBytes }: { signal?: AbortSignal; onBytes: (bytes: number) => void }): Promise<'restored' | 'dropped'> {
   const caseOnly = !move.target && move.from.toLowerCase() === move.to.toLowerCase();
   if (!(await exists(move.fromAbsolute))) {
     if (move.entry.state === 'pending' && (await exists(move.toAbsolute))) return 'dropped';
@@ -57,7 +79,10 @@ async function restore(move, { signal, onBytes }) {
  * destination (e.g. outside allowed folders). Cancelling keeps the remaining
  * entries so a later undo continues where this one stopped.
  */
-export async function undoLast(root, { checkTarget, signal, stopSignal, onProgress, owner = 'media-renamer' } = {}) {
+export async function undoLast(
+  root: string,
+  { checkTarget, signal, stopSignal, onProgress, owner = 'media-renamer' }: UndoOptions = {},
+): Promise<UndoResult> {
   const release = await acquireLock(root, owner);
   try {
     const log = await readUndoLog(root);
@@ -70,8 +95,8 @@ export async function undoLast(root, { checkTarget, signal, stopSignal, onProgre
     const moves = await planUndo(root, batch);
 
     const progress = createProgress(moves, onProgress);
-    const restored = [];
-    const skipped = [];
+    const restored: DoneRename[] = [];
+    const skipped: FailedRename[] = [];
     let cancelled = false;
     for (const move of moves) {
       if (stopRequested({ signal, stopSignal })) {
@@ -87,7 +112,7 @@ export async function undoLast(root, { checkTarget, signal, stopSignal, onProgre
           cancelled = true;
           break;
         }
-        skipped.push({ from: move.from, to: move.to, target: move.target, reason: error.message });
+        skipped.push({ from: move.from, to: move.to, target: move.target, reason: (error as Error).message });
       }
       move.entry.state = 'undone';
       await writeUndoLog(root, log);

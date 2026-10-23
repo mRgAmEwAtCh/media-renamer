@@ -2,10 +2,50 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { InputError } from './errors.ts';
 import { writeFileAtomic } from './fs-utils.ts';
+import type { JobControl, JobKind, JobRunner, JobSnapshot, JobState, Progress, StepDefinition, StepPatch, ImportRow } from './types.ts';
+
+/** A job inside the manager: the snapshot fields plus runtime state that is never saved or sent. */
+type Job = JobSnapshot & {
+  run?: JobRunner;
+  cancel?: AbortController;
+  stop?: AbortController;
+  done?: Promise<void>;
+  userCancelled?: boolean;
+};
+
+/** Re-creates the runner for a job restored from the store, or null when it cannot be resumed. */
+export type JobResumer = (job: JobSnapshot) => JobRunner | null;
+
+export interface JobManagerOptions {
+  storeFile?: string | null;
+  resume?: JobResumer | null;
+  keep?: number;
+}
+
+export interface StartJobOptions {
+  kind: JobKind;
+  root: string;
+  targets?: string[];
+  params?: JobSnapshot['params'];
+  label?: string | null;
+  source?: string;
+  run: JobRunner;
+}
+
+interface NewJobFields {
+  id?: string;
+  kind: JobKind;
+  root: string;
+  targets: string[];
+  params: JobSnapshot['params'];
+  label: string | null;
+  source: string;
+  queuedAt?: string;
+}
 
 const KEEP_FINISHED = 50;
 const SAVE_DELAY_MS = 1000;
-const ACTIVE_STATES = new Set(['queued', 'running', 'cancelling']);
+const ACTIVE_STATES = new Set<JobState>(['queued', 'running', 'cancelling']);
 
 /**
  * Runs rename, undo and import work in the background, one job at a time, in
@@ -23,7 +63,19 @@ const ACTIVE_STATES = new Set(['queued', 'running', 'cancelling']);
  * `onFinish(job)` is called once for every job that ends.
  */
 export class JobManager {
-  constructor({ storeFile = null, resume = null, keep = KEEP_FINISHED } = {}) {
+  jobs: Map<string, Job>;
+  queue: Job[];
+  active: Job | null;
+  shuttingDown: boolean;
+  storeFile: string | null;
+  resume?: JobResumer | null;
+  keep: number;
+  saveTimer: ReturnType<typeof setTimeout> | null;
+  saveWarned: boolean;
+  declare saving?: Promise<void>;
+  declare onFinish?: (job: JobSnapshot) => unknown;
+
+  constructor({ storeFile = null, resume = null, keep = KEEP_FINISHED }: JobManagerOptions = {}) {
     this.jobs = new Map();
     this.queue = [];
     this.active = null;
@@ -35,7 +87,7 @@ export class JobManager {
     this.saveWarned = false;
   }
 
-  start({ kind, root, targets = [], params = {}, label = null, source = 'web UI', run }) {
+  start({ kind, root, targets = [], params = {}, label = null, source = 'web UI', run }: StartJobOptions): JobSnapshot {
     if (this.shuttingDown) throw new InputError('The server is shutting down', { status: 503 });
     const job = this.createJob({ kind, root, targets, params, label, source });
     job.run = run;
@@ -46,7 +98,7 @@ export class JobManager {
     return this.snapshot(job);
   }
 
-  createJob({ id = randomUUID(), kind, root, targets, params, label, source, queuedAt = new Date().toISOString() }) {
+  createJob({ id = randomUUID(), kind, root, targets, params, label, source, queuedAt = new Date().toISOString() }: NewJobFields): Job {
     return {
       id,
       kind,
@@ -69,7 +121,7 @@ export class JobManager {
   }
 
   /** Start the next queued job when nothing is running. */
-  pump() {
+  pump(): void {
     if (this.active || this.shuttingDown) return;
     const job = this.queue.shift();
     if (!job) return;
@@ -80,23 +132,23 @@ export class JobManager {
     job.stop = new AbortController();
     this.save();
 
-    const control = {
+    const control: JobControl = {
       signal: job.cancel.signal,
       stopSignal: job.stop.signal,
-      onProgress: (progress) => {
+      onProgress: (progress: Progress) => {
         job.progress = progress;
         this.saveSoon();
       },
-      defineSteps: (steps) => {
+      defineSteps: (steps: StepDefinition[]) => {
         job.steps = steps.map(({ id, label }) => ({ id, label, state: 'pending', detail: null }));
         this.save();
       },
-      step: (id, patch) => {
+      step: (id: string, patch: StepPatch) => {
         const step = job.steps.find((s) => s.id === id);
         if (step) Object.assign(step, patch);
         this.save();
       },
-      setFiles: (files) => {
+      setFiles: (files: ImportRow[]) => {
         job.files = files;
         this.saveSoon();
       },
@@ -104,12 +156,12 @@ export class JobManager {
 
     job.done = (async () => {
       try {
-        job.result = await job.run(control);
+        job.result = await job.run!(control);
         if (job.result?.cancelled) job.state = this.shuttingDown && !job.userCancelled ? 'interrupted' : 'cancelled';
         else job.state = 'finished';
       } catch (error) {
         job.state = 'failed';
-        job.error = error.message;
+        job.error = (error as Error).message;
         if (!(error instanceof InputError)) console.error(error);
       } finally {
         for (const step of job.steps) {
@@ -121,7 +173,7 @@ export class JobManager {
         this.active = null;
         Promise.resolve()
           .then(() => this.onFinish?.(this.snapshot(job)))
-          .catch((error) => console.error(`Job notification failed: ${error.message}`));
+          .catch((error: unknown) => console.error(`Job notification failed: ${(error as Error).message}`));
         this.prune();
         await this.save();
         this.pump();
@@ -129,28 +181,28 @@ export class JobManager {
     })();
   }
 
-  prune() {
+  prune(): void {
     const finished = [...this.jobs.values()].filter((job) => !ACTIVE_STATES.has(job.state));
     for (const job of finished.slice(0, Math.max(0, finished.length - this.keep))) this.jobs.delete(job.id);
   }
 
-  get(id) {
+  get(id: string | null | undefined): JobSnapshot | null {
     const job = id ? this.jobs.get(id) : (this.active ?? this.queue[0] ?? [...this.jobs.values()].at(-1));
     return job ? this.snapshot(job) : null;
   }
 
   /** Newest first. */
-  list() {
+  list(): JobSnapshot[] {
     return [...this.jobs.values()].reverse().map((job) => this.snapshot(job, { summary: true }));
   }
 
   /** First queued or running job matching the predicate (e.g. the same import path). */
-  findActive(predicate) {
+  findActive(predicate: (job: JobSnapshot) => boolean): JobSnapshot | null {
     const job = [this.active, ...this.queue].find((candidate) => candidate && predicate(candidate));
     return job ? this.snapshot(job) : null;
   }
 
-  cancel(id) {
+  cancel(id: string): JobSnapshot {
     const job = this.jobs.get(id);
     if (!job) throw new InputError('Unknown job', { status: 404 });
     if (job.state === 'queued') {
@@ -161,14 +213,14 @@ export class JobManager {
     } else if (job.state === 'running') {
       job.state = 'cancelling';
       job.userCancelled = true;
-      job.cancel.abort();
+      job.cancel!.abort();
       this.save();
     }
     return this.snapshot(job);
   }
 
   /** Forget all finished jobs; queued and running jobs stay. */
-  async clear() {
+  async clear(): Promise<number> {
     let removed = 0;
     for (const [id, job] of this.jobs) {
       if (ACTIVE_STATES.has(job.state)) continue;
@@ -183,12 +235,12 @@ export class JobManager {
    * Stop accepting jobs, let the current file finish for up to graceMs, then
    * cancel hard. Queued jobs stay queued in the store and resume after a restart.
    */
-  async shutdown({ graceMs }) {
+  async shutdown({ graceMs }: { graceMs: number }): Promise<void> {
     this.shuttingDown = true;
     const job = this.active;
     if (job) {
-      job.stop.abort();
-      const timer = setTimeout(() => job.cancel.abort(), graceMs);
+      job.stop!.abort();
+      const timer = setTimeout(() => job.cancel!.abort(), graceMs);
       timer.unref();
       await job.done;
       clearTimeout(timer);
@@ -197,17 +249,20 @@ export class JobManager {
   }
 
   /** Load history and re-queue jobs that were waiting or cut off by a restart. */
-  async restore() {
+  async restore(): Promise<void> {
     if (!this.storeFile) return;
-    let stored;
+    let stored: unknown;
     try {
       stored = JSON.parse(await fs.readFile(this.storeFile, 'utf8'));
     } catch (error) {
-      if (error.code !== 'ENOENT') console.error(`Ignoring unreadable job history ${this.storeFile}: ${error.message}`);
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error(`Ignoring unreadable job history ${this.storeFile}: ${(error as Error).message}`);
+      }
       return;
     }
     if (!Array.isArray(stored)) return;
-    for (const saved of stored) {
+    // The store is written by writeStore; entries are trusted to be job snapshots.
+    for (const saved of stored as (JobSnapshot | null)[]) {
       if (!saved?.id || this.jobs.has(saved.id)) continue;
       const job = { ...this.createJob(saved), ...saved };
       if (ACTIVE_STATES.has(job.state) || job.state === 'interrupted') {
@@ -230,7 +285,7 @@ export class JobManager {
     this.pump();
   }
 
-  saveSoon() {
+  saveSoon(): void {
     if (!this.storeFile || this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
@@ -240,7 +295,7 @@ export class JobManager {
   }
 
   /** Saves run one after another; each writes the state at the time it runs, so the newest always wins. */
-  save() {
+  save(): Promise<void> {
     if (!this.storeFile) return Promise.resolve();
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
@@ -250,19 +305,19 @@ export class JobManager {
     return this.saving;
   }
 
-  async writeStore() {
+  async writeStore(): Promise<void> {
     const jobs = [...this.jobs.values()].map((job) => this.snapshot(job));
     try {
-      await writeFileAtomic(this.storeFile, `${JSON.stringify(jobs)}\n`, { mkdir: true });
+      await writeFileAtomic(this.storeFile!, `${JSON.stringify(jobs)}\n`, { mkdir: true });
     } catch (error) {
-      if (!this.saveWarned) console.error(`Cannot save job history to ${this.storeFile}: ${error.message}`);
+      if (!this.saveWarned) console.error(`Cannot save job history to ${this.storeFile}: ${(error as Error).message}`);
       this.saveWarned = true;
     }
   }
 
-  snapshot(job, { summary = false } = {}) {
+  snapshot(job: Job, { summary = false }: { summary?: boolean } = {}): JobSnapshot {
     const { cancel, stop, done, run, userCancelled, ...visible } = job;
-    const copy = structuredClone(visible);
+    const copy: JobSnapshot = structuredClone(visible);
     if (job.state === 'queued') copy.queuePosition = this.queue.indexOf(job) + 1;
     if (summary) {
       copy.fileCount = copy.files.length;

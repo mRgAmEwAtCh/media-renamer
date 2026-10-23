@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import { EXIT, parseCli, UsageError } from '../lib/cli/args.ts';
+import type { CliValues } from '../lib/cli/args.ts';
 import { FOLDER_COMMANDS } from '../lib/cli/commands.ts';
 import { buildContext } from '../lib/cli/context.ts';
 import { HELP } from '../lib/cli/help.ts';
@@ -8,13 +9,13 @@ import { createOutput, printSettings } from '../lib/cli/output.ts';
 import { loadEnvFile } from '../lib/config.ts';
 import { loadSettings } from '../lib/settings.ts';
 
-async function printVersion() {
-  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+async function printVersion(): Promise<number> {
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
   process.stdout.write(`${pkg.version}\n`);
   return EXIT.ok;
 }
 
-async function pick(values) {
+async function pick(values: CliValues): Promise<number> {
   const { pickFolderNative } = await import('../lib/native-dialog.ts');
   const result = await pickFolderNative({ start: values.start });
   if (!result.path) {
@@ -25,7 +26,7 @@ async function pick(values) {
   return EXIT.ok;
 }
 
-async function serve(values) {
+async function serve(values: CliValues): Promise<null> {
   const port = values.port === undefined ? undefined : Number(values.port);
   if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
     throw new UsageError('--port must be an integer between 0 and 65535');
@@ -36,7 +37,7 @@ async function serve(values) {
 }
 
 /** Resolves to the exit code, or null while the server keeps running. */
-async function main(argv) {
+async function main(argv: string[]): Promise<number | null> {
   const { values, positionals } = parseCli(argv);
   loadEnvFile();
   if (values.version) return printVersion();
@@ -68,8 +69,8 @@ main(process.argv.slice(2)).then(
   (code) => {
     if (code !== null) process.exitCode = code;
   },
-  (error) => {
-    process.stderr.write(`media-renamer: ${error.message}\n`);
+  (error: unknown) => {
+    process.stderr.write(`media-renamer: ${(error as Error).message}\n`);
     if (error instanceof UsageError) process.stderr.write('Run "media-renamer --help" for usage.\n');
     process.exitCode = error instanceof UsageError ? EXIT.usage : EXIT.error;
   },

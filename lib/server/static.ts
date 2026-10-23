@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ServerResponse } from 'node:http';
 import { send } from './http.ts';
 
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public');
-const CONTENT_TYPES = {
+const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -41,7 +42,13 @@ const APP_MODULES = [
   'text.js',
 ];
 
-const entry = (file, { isPublic = false, url = `/${file}` } = {}) => [url, { file, type: CONTENT_TYPES[path.extname(file)], isPublic }];
+interface StaticFile {
+  file: string;
+  type: string;
+  isPublic: boolean;
+}
+
+const entry = (file: string, { isPublic = false, url = `/${file}` }: { isPublic?: boolean; url?: string } = {}): [string, StaticFile] => [url, { file, type: CONTENT_TYPES[path.extname(file)], isPublic }];
 const STATIC_FILES = new Map([
   entry('index.html', { url: '/' }),
   entry('login.html', { url: '/login', isPublic: true }),
@@ -49,10 +56,10 @@ const STATIC_FILES = new Map([
   ...APP_MODULES.map((file) => entry(file)),
 ]);
 
-export const isStaticFile = (pathname) => STATIC_FILES.has(pathname);
-export const isPublicFile = (pathname) => STATIC_FILES.get(pathname)?.isPublic === true;
+export const isStaticFile = (pathname: string): boolean => STATIC_FILES.has(pathname);
+export const isPublicFile = (pathname: string): boolean => STATIC_FILES.get(pathname)?.isPublic === true;
 
-export async function serveStatic(response, pathname) {
-  const { file, type } = STATIC_FILES.get(pathname);
+export async function serveStatic(response: ServerResponse, pathname: string): Promise<void> {
+  const { file, type } = STATIC_FILES.get(pathname)!;
   return send(response, 200, await fs.readFile(path.join(PUBLIC_DIR, file)), type);
 }

@@ -1,4 +1,4 @@
-import { parseArgs } from 'node:util';
+import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 
 export const EXIT = { ok: 0, error: 1, usage: 2, unresolved: 3, cancelled: 130 };
 
@@ -34,24 +34,27 @@ const OPTIONS = {
   start: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
-};
+} as const satisfies ParseArgsOptionsConfig;
 
-export function parseCli(argv) {
+export function parseCli(argv: string[]) {
   try {
     return parseArgs({ args: argv, allowPositionals: true, options: OPTIONS });
   } catch (error) {
-    throw new UsageError(error.message);
+    throw new UsageError((error as Error).message);
   }
 }
 
-export async function readStdin() {
+/** Parsed command-line options. */
+export type CliValues = ReturnType<typeof parseCli>['values'];
+
+export async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) throw new UsageError('Expected input on stdin, but stdin is a terminal');
-  const chunks = [];
+  const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString('utf8');
 }
 
 /** Non-blank lines, or NUL-separated records with `nul`. */
-export function splitRecords(text, nul) {
+export function splitRecords(text: string, nul: boolean | undefined): string[] {
   return text.split(nul ? '\0' : /\r?\n/).filter((record) => record.trim() !== '');
 }

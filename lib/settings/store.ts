@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import { InputError } from '../errors.ts';
+import type { SavedSettings, SavedSettingsFile, Settings, Targets } from '../types.ts';
 import { writeFileAtomic } from '../fs-utils.ts';
 import { envSettings, settingsFilePath } from './env.ts';
 import { sanitizeSettings } from './validate.ts';
 
 /** Saved values override the environment defaults, field by field. */
-export function mergeSettings(base, saved = {}) {
+export function mergeSettings(base: Settings, saved: SavedSettings = {}): Settings {
   return {
     patterns: { ...base.patterns, ...saved.patterns },
     targets: { ...base.targets, ...saved.targets },
@@ -22,18 +23,18 @@ export function mergeSettings(base, saved = {}) {
 }
 
 /** Destinations that apply: none when moving is switched off. */
-export const activeTargets = (settings) => (settings.move ? { ...settings.targets } : { episode: null, movie: null });
+export const activeTargets = (settings: Settings): Targets => (settings.move ? { ...settings.targets } : { episode: null, movie: null });
 
 /** Read saved settings; a missing file is fine, a broken one is reported and ignored. */
-export async function readSavedSettings(file) {
-  let text;
+export async function readSavedSettings(file: string): Promise<SavedSettingsFile> {
+  let text: string;
   try {
     text = await fs.readFile(file, 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return { exists: false, settings: {}, savedAt: null, problems: [] };
-    return { exists: false, settings: {}, savedAt: null, problems: [`Cannot read ${file}: ${error.message}`] };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { exists: false, settings: {}, savedAt: null, problems: [] };
+    return { exists: false, settings: {}, savedAt: null, problems: [`Cannot read ${file}: ${(error as Error).message}`] };
   }
-  let parsed;
+  let parsed: { savedAt?: unknown } | null;
   try {
     parsed = JSON.parse(text);
   } catch {
@@ -43,16 +44,16 @@ export async function readSavedSettings(file) {
   return { exists: true, settings, savedAt: typeof parsed?.savedAt === 'string' ? parsed.savedAt : null, problems };
 }
 
-function notWritable(file, error) {
+function notWritable(file: string, error: unknown): InputError {
   return new InputError(
-    `Cannot save settings to ${file} (${error.code ?? error.message}). ` +
+    `Cannot save settings to ${file} (${(error as NodeJS.ErrnoException).code ?? (error as Error).message}). ` +
       'Make the folder writable, or in Docker mount a writable folder at /config.',
     { status: 500 },
   );
 }
 
 /** Replace the saved settings (validated strictly) with an atomic write. */
-export async function writeSavedSettings(file, input) {
+export async function writeSavedSettings(file: string, input: unknown): Promise<{ settings: SavedSettings; savedAt: string }> {
   const { settings } = sanitizeSettings(input, { strict: true });
   const document = { version: 1, savedAt: new Date().toISOString(), ...settings };
   try {
@@ -63,7 +64,7 @@ export async function writeSavedSettings(file, input) {
   return { settings, savedAt: document.savedAt };
 }
 
-export async function deleteSavedSettings(file) {
+export async function deleteSavedSettings(file: string): Promise<void> {
   try {
     await fs.rm(file, { force: true });
   } catch (error) {
@@ -72,7 +73,10 @@ export async function deleteSavedSettings(file) {
 }
 
 /** Environment defaults merged with the saved file. */
-export async function loadSettings(env = process.env, file = settingsFilePath(env)) {
+export async function loadSettings(
+  env: NodeJS.ProcessEnv = process.env,
+  file: string = settingsFilePath(env),
+): Promise<{ file: string; defaults: Settings; saved: SavedSettingsFile; effective: Settings }> {
   const defaults = envSettings(env);
   const saved = await readSavedSettings(file);
   return { file, defaults, saved, effective: mergeSettings(defaults, saved.settings) };

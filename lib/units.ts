@@ -1,5 +1,5 @@
 /** 1536 → "1.5 KB" */
-export function formatBytes(bytes) {
+export function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let value = bytes;
   let unit = 0;

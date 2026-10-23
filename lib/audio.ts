@@ -2,6 +2,23 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CancelledError, commitNoOverwrite, isCancellation, partialPathFor } from './mover.ts';
+import type { ByteProgress } from './mover.ts';
+import type { AudioPlan, AudioTools } from './types.ts';
+
+/** The parts of `ffprobe -of json` output that are read here. */
+export interface ProbeStream {
+  index: number;
+  codec_type?: string;
+  codec_name?: string;
+  profile?: string;
+  channels?: number;
+  tags?: { language?: string; title?: string };
+}
+
+export interface ProbeResult {
+  streams?: ProbeStream[];
+  format?: { duration?: string };
+}
 
 /** Codes a track may be tagged with, by language (ISO 639-1 → 639-1/639-2 B/T). */
 const LANGUAGE_GROUPS = [
@@ -22,28 +39,28 @@ const LANGUAGE_GROUPS = [
   ['tr', 'tur'],
   ['ja', 'jpn'],
 ];
-const DOLBY_CODECS = new Set(['ac3', 'eac3', 'truehd']);
-const DTS_CODECS = new Set(['dts']);
+const DOLBY_CODECS = new Set<string | undefined>(['ac3', 'eac3', 'truehd']);
+const DTS_CODECS = new Set<string | undefined>(['dts']);
 const MAX_EAC3_CHANNELS = 6; // ffmpeg's E-AC-3 encoder supports up to 5.1
 const STEREO_BITRATE = '256k';
 const STDERR_TAIL = 4000;
 
-export function languageAliases(code) {
+export function languageAliases(code: string | null | undefined) {
   const normalized = String(code ?? '').trim().toLowerCase();
   return new Set(LANGUAGE_GROUPS.find((group) => group.includes(normalized)) ?? [normalized]);
 }
 
-const channelLabel = (channels) => (channels >= 6 ? '5.1' : channels === 2 ? '2.0' : channels === 1 ? '1.0' : `${channels}ch`);
+const channelLabel = (channels: number) => (channels >= 6 ? '5.1' : channels === 2 ? '2.0' : channels === 1 ? '1.0' : `${channels}ch`);
 
 /**
  * Decide which DTS tracks need a Dolby Digital Plus companion. For each wanted
  * language: a Dolby track (AC3, E-AC-3, TrueHD) means nothing to do; otherwise
  * the first DTS track in that language is converted. Untagged tracks are ignored.
  */
-export function planAudioFix(probe, { languages }) {
+export function planAudioFix(probe: ProbeResult | null | undefined, { languages }: { languages: string[] }): AudioPlan {
   const audio = (probe?.streams ?? []).filter((stream) => stream.codec_type === 'audio');
-  const conversions = [];
-  const notes = [];
+  const conversions: AudioPlan['conversions'] = [];
+  const notes: string[] = [];
   for (const language of languages) {
     const aliases = languageAliases(language);
     const inLanguage = audio.filter((stream) => aliases.has(String(stream.tags?.language ?? '').toLowerCase()));
@@ -59,7 +76,7 @@ export function planAudioFix(probe, { languages }) {
     const channels = Number(dts.channels) || 6;
     conversions.push({
       streamIndex: dts.index,
-      language: dts.tags.language,
+      language: dts.tags!.language!,
       channels,
       outputChannels: Math.min(channels, MAX_EAC3_CHANNELS),
       source: dts.profile || 'DTS',
@@ -75,7 +92,7 @@ export function planAudioFix(probe, { languages }) {
 }
 
 /** ffmpeg arguments: copy every original stream unchanged, append one E-AC-3 track per conversion. */
-export function buildFfmpegArgs({ input, output, plan, bitrate = '1024k' }) {
+export function buildFfmpegArgs({ input, output, plan, bitrate = '1024k' }: { input: string; output: string; plan: AudioPlan; bitrate?: string }) {
   const args = ['-hide_banner', '-nostdin', '-v', 'error', '-i', input, '-map', '0'];
   for (const conversion of plan.conversions) args.push('-map', `0:${conversion.streamIndex}`);
   args.push('-c', 'copy');
@@ -97,12 +114,16 @@ export function buildFfmpegArgs({ input, output, plan, bitrate = '1024k' }) {
 }
 
 /** Seconds of output written so far, from one line of `-progress` output. */
-export function parseProgressLine(line) {
+export function parseProgressLine(line: string) {
   const match = line.match(/^out_time_(?:us|ms)=(\d+)$/);
   return match ? Number(match[1]) / 1e6 : null;
 }
 
-function run(command, args, { signal, onLine } = {}) {
+function run(
+  command: string,
+  args: string[],
+  { signal, onLine }: { signal?: AbortSignal; onLine?: (line: string) => void } = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new CancelledError());
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -119,7 +140,7 @@ function run(command, args, { signal, onLine } = {}) {
       }
       buffered += text;
       const lines = buffered.split('\n');
-      buffered = lines.pop();
+      buffered = lines.pop()!;
       lines.forEach((line) => onLine(line.trim()));
     });
     child.stderr.on('data', (chunk) => {
@@ -127,7 +148,7 @@ function run(command, args, { signal, onLine } = {}) {
     });
     child.on('error', (error) => {
       signal?.removeEventListener('abort', abort);
-      reject(error.code === 'ENOENT' ? new Error(`${command} is not installed`) : error);
+      reject((error as NodeJS.ErrnoException).code === 'ENOENT' ? new Error(`${command} is not installed`) : error);
     });
     child.on('close', (code) => {
       signal?.removeEventListener('abort', abort);
@@ -138,7 +159,7 @@ function run(command, args, { signal, onLine } = {}) {
   });
 }
 
-export async function probeFile(file, { ffprobe = 'ffprobe', signal } = {}) {
+export async function probeFile(file: string, { ffprobe = 'ffprobe', signal }: { ffprobe?: string; signal?: AbortSignal } = {}): Promise<ProbeResult> {
   const output = await run(
     ffprobe,
     ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name,profile,channels:stream_tags=language,title:format=duration', '-of', 'json', file],
@@ -147,10 +168,10 @@ export async function probeFile(file, { ffprobe = 'ffprobe', signal } = {}) {
   return JSON.parse(output);
 }
 
-const availability = new Map();
+const availability = new Map<string, Promise<boolean>>();
 
 /** Whether ffmpeg and ffprobe can be run (cached). */
-export async function audioToolsAvailable({ ffmpeg = 'ffmpeg', ffprobe = 'ffprobe' } = {}) {
+export async function audioToolsAvailable({ ffmpeg = 'ffmpeg', ffprobe = 'ffprobe' }: Partial<AudioTools> = {}): Promise<boolean> {
   const key = `${ffmpeg}\0${ffprobe}`;
   if (!availability.has(key)) {
     availability.set(
@@ -161,7 +182,16 @@ export async function audioToolsAvailable({ ffmpeg = 'ffmpeg', ffprobe = 'ffprob
       ),
     );
   }
-  return availability.get(key);
+  return availability.get(key)!;
+}
+
+export interface ConvertOptions {
+  plan: AudioPlan;
+  partialPath?: string;
+  tools?: Partial<AudioTools>;
+  bitrate?: string;
+  signal?: AbortSignal;
+  onProgress?: ByteProgress;
 }
 
 /**
@@ -170,9 +200,13 @@ export async function audioToolsAvailable({ ffmpeg = 'ffmpeg', ffprobe = 'ffprob
  * overwriting), then delete `from`. On failure or cancel the partial file is
  * removed and `from` is left untouched.
  */
-export async function convertAndMove(from, to, { plan, partialPath = partialPathFor(to), tools = {}, bitrate, signal, onProgress } = {}) {
+export async function convertAndMove(
+  from: string,
+  to: string,
+  { plan, partialPath = partialPathFor(to), tools = {}, bitrate, signal, onProgress }: ConvertOptions = {} as ConvertOptions,
+) {
   const source = await fs.stat(from);
-  const reportFraction = (fraction) => onProgress?.(Math.min(source.size, Math.round(source.size * fraction)), source.size);
+  const reportFraction = (fraction: number) => onProgress?.(Math.min(source.size, Math.round(source.size * fraction)), source.size);
   try {
     await run(tools.ffmpeg ?? 'ffmpeg', buildFfmpegArgs({ input: from, output: partialPath, plan, bitrate }), {
       signal,
@@ -182,7 +216,7 @@ export async function convertAndMove(from, to, { plan, partialPath = partialPath
       },
     });
     const result = await probeFile(partialPath, { ffprobe: tools.ffprobe, signal });
-    const audio = result.streams.filter((stream) => stream.codec_type === 'audio');
+    const audio = result.streams!.filter((stream) => stream.codec_type === 'audio');
     const added = audio.slice(plan.audioCount);
     if (audio.length !== plan.audioCount + plan.conversions.length || added.some((stream) => stream.codec_name !== 'eac3')) {
       throw new Error('The converted file does not contain the expected audio tracks');

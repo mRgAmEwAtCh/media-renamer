@@ -1,14 +1,22 @@
 import { applyRenames, buildPreview, parseRelativePath, scanFolder, undoLast } from '../renamer.ts';
+import type { PreviewItem } from '../types.ts';
 import { EXIT, readStdin, splitRecords, UsageError } from './args.ts';
+import type { CliValues } from './args.ts';
 import { createMetadata } from './context.ts';
+import type { CliContext } from './context.ts';
 import { importCommand } from './import-command.ts';
 import { describeTargets, display, logExcluded, printItems, printRenames } from './output.ts';
+import type { Output } from './output.ts';
 import { loadPlan, selectRenames } from './plan.ts';
+import type { PlanItem, PlannedRename } from './plan.ts';
 import { runWithProgress } from './progress.ts';
 
-const PROBLEM_STATUSES = new Set(['error', 'conflict']);
+/** A folder command: resolves to the process exit code. */
+export type Command = (ctx: CliContext, positionals: string[], values: CliValues, output: Output) => Promise<number>;
 
-async function scanFiles(ctx, values, output) {
+const PROBLEM_STATUSES = new Set<string>(['error', 'conflict']);
+
+async function scanFiles(ctx: CliContext, values: CliValues, output: Output) {
   const { files, truncated, excluded } = await scanFolder(ctx.root, { recursive: !values['no-recursive'], ...ctx.filters });
   if (truncated) output.log(`warning: stopped after ${files.length} files`);
   logExcluded(excluded, output);
@@ -16,26 +24,26 @@ async function scanFiles(ctx, values, output) {
 }
 
 /** Files named on the command line or stdin, else everything found in the folder. */
-async function collectFiles(ctx, positionals, values, output) {
+async function collectFiles(ctx: CliContext, positionals: string[], values: CliValues, output: Output): Promise<string[]> {
   const files = [...positionals];
   if (values.stdin) files.push(...splitRecords(await readStdin(), values.null));
   if (files.length) return files;
   return (await scanFiles(ctx, values, output)).files;
 }
 
-async function previewItems(ctx, positionals, values, output) {
+async function previewItems(ctx: CliContext, positionals: string[], values: CliValues, output: Output): Promise<PreviewItem[]> {
   const files = await collectFiles(ctx, positionals, values, output);
   output.log(`Looking up ${files.length} file(s) in ${ctx.language}${ctx.region ? `/${ctx.region}` : ''}…${describeTargets(ctx.targets)}`);
   return buildPreview({ root: ctx.root, targets: ctx.targets, files, patterns: ctx.patterns, filters: ctx.filters, metadata: createMetadata(ctx) });
 }
 
 /** The one destination shared by all renames (null when in place or spread over several). */
-function sharedTarget(renames) {
+function sharedTarget(renames: PlannedRename[]): string | null {
   const distinct = [...new Set(renames.map((r) => r.target ?? null))];
   return distinct.length === 1 ? distinct[0] : null;
 }
 
-async function scan(ctx, positionals, values, output) {
+async function scan(ctx: CliContext, positionals: string[], values: CliValues, output: Output): Promise<number> {
   if (positionals.length) throw new UsageError('scan takes only <dir>');
   const { root } = ctx;
   const { files, truncated, excluded } = await scanFiles(ctx, values, output);
@@ -51,15 +59,15 @@ async function scan(ctx, positionals, values, output) {
   return EXIT.ok;
 }
 
-async function preview(ctx, positionals, values, output) {
+async function preview(ctx: CliContext, positionals: string[], values: CliValues, output: Output): Promise<number> {
   const items = await previewItems(ctx, positionals, values, output);
   printItems(ctx, items, values, output);
   return values.strict && items.some((i) => PROBLEM_STATUSES.has(i.status)) ? EXIT.unresolved : EXIT.ok;
 }
 
-async function apply(ctx, positionals, values, output) {
+async function apply(ctx: CliContext, positionals: string[], values: CliValues, output: Output): Promise<number> {
   if (values.plan && (positionals.length || values.stdin)) throw new UsageError('--plan cannot be combined with file arguments or --stdin');
-  const items = values.plan ? (await loadPlan(ctx, values.plan)).items : await previewItems(ctx, positionals, values, output);
+  const items: PlanItem[] = values.plan ? (await loadPlan(ctx, values.plan)).items : await previewItems(ctx, positionals, values, output);
   const problems = items.filter((i) => PROBLEM_STATUSES.has(i.status));
   if (values.strict && problems.length) {
     printItems(ctx, problems, values, output);
@@ -94,7 +102,7 @@ async function apply(ctx, positionals, values, output) {
   return result.failed.length ? EXIT.unresolved : EXIT.ok;
 }
 
-async function undo(ctx, positionals, values, output) {
+async function undo(ctx: CliContext, positionals: string[], values: CliValues, output: Output): Promise<number> {
   if (positionals.length) throw new UsageError('undo takes only <dir>');
   const result = await runWithProgress(values, output, ({ signal, onProgress }) => undoLast(ctx.root, { signal, onProgress, owner: 'CLI' }));
   output.log(`${result.cancelled ? 'Undo cancelled. ' : ''}Restored ${result.restored} file(s) from the batch of ${result.batchAt}`);
@@ -106,4 +114,4 @@ async function undo(ctx, positionals, values, output) {
 }
 
 /** Commands that work on a <dir>: `command(ctx, positionals, values, output)` resolves to an exit code. */
-export const FOLDER_COMMANDS = { scan, preview, apply, import: importCommand, undo };
+export const FOLDER_COMMANDS: Record<string, Command> = { scan, preview, apply, import: importCommand, undo };

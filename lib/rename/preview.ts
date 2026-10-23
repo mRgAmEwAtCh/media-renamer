@@ -3,15 +3,36 @@ import { mapLimit } from '../async.ts';
 import { DEFAULT_FILTERS, DEFAULT_PATTERNS, MAX_FILES } from '../defaults.ts';
 import { InputError } from '../errors.ts';
 import { renderPattern, validatePattern } from '../format.ts';
+import type { PatternValues } from '../format.ts';
 import { exists } from '../fs-utils.ts';
 import { resolveInside, toRootRelative } from '../paths.ts';
+import type { Filters, ItemStatus, MediaKind, MetadataSource, ParsedKind, ParsedMedia, Patterns, PreviewItem, Targets } from '../types.ts';
 import { filterReason, parseRelativePath } from './scan.ts';
 
-const yearSuffix = (year) => (year ? ` (${year})` : '');
+/** Pattern values for one file plus how they were found. */
+interface LookupResult {
+  values: PatternValues;
+  match?: string;
+  status?: ItemStatus;
+  message?: string;
+}
+
+export interface PreviewOptions {
+  root: string;
+  target?: string | null;
+  targets?: Partial<Targets>;
+  files: readonly string[];
+  patterns?: Partial<Patterns>;
+  filters?: Partial<Filters>;
+  metadata: MetadataSource;
+  concurrency?: number;
+}
+
+const yearSuffix = (year: number | null) => (year ? ` (${year})` : '');
 
 /** Pattern values for an episode, from TMDB/TVmaze when found, else from the file name. */
-async function lookupEpisode(parsed, metadata) {
-  const values = { name: parsed.title, year: parsed.year, season: parsed.season, episode: parsed.episode, episodeEnd: parsed.episodeEnd };
+async function lookupEpisode(parsed: ParsedMedia, metadata: MetadataSource): Promise<LookupResult> {
+  const values: PatternValues = { name: parsed.title, year: parsed.year, season: parsed.season, episode: parsed.episode, episodeEnd: parsed.episodeEnd };
   const show = await metadata.findShow(parsed.title, parsed.year);
   if (!show) {
     return { values, status: 'warning', message: `No ${metadata.tmdbKey ? 'TMDB/TVmaze' : 'TVmaze'} match; using parsed name` };
@@ -24,8 +45,8 @@ async function lookupEpisode(parsed, metadata) {
 }
 
 /** Pattern values for a movie, from TMDB when found, else from the file name. */
-async function lookupMovie(parsed, metadata) {
-  const values = { name: parsed.title, year: parsed.year };
+async function lookupMovie(parsed: ParsedMedia, metadata: MetadataSource): Promise<LookupResult> {
+  const values: PatternValues = { name: parsed.title, year: parsed.year };
   const movie = await metadata.findMovie(parsed.title, parsed.year);
   if (!movie) {
     const reason = metadata.tmdbKey ? 'No TMDB match' : 'No TMDB key';
@@ -35,16 +56,22 @@ async function lookupMovie(parsed, metadata) {
   return { values, match: `${movie.source}: ${movie.name}${yearSuffix(movie.year)}` };
 }
 
-const LOOKUPS = { episode: lookupEpisode, movie: lookupMovie };
+const LOOKUPS: Record<MediaKind, (parsed: ParsedMedia, metadata: MetadataSource) => Promise<LookupResult>> = { episode: lookupEpisode, movie: lookupMovie };
 
-async function describe(rel, parsed, patterns, metadata, { moving = false } = {}) {
-  const base = { rel, kind: parsed.kind, newRel: null, target: null, status: 'ok', match: null, message: null };
+async function describe(
+  rel: string,
+  parsed: ParsedMedia,
+  patterns: Patterns,
+  metadata: MetadataSource,
+  { moving = false }: { moving?: boolean } = {},
+): Promise<PreviewItem> {
+  const base: PreviewItem = { rel, kind: parsed.kind, newRel: null, target: null, status: 'ok', match: null, message: null };
   if (!Object.hasOwn(LOOKUPS, parsed.kind)) return { ...base, status: 'skipped', message: 'Not recognised as a movie or episode' };
   if (parsed.kind === 'episode' && !parsed.title) return { ...base, status: 'skipped', message: 'Series name could not be determined' };
 
-  const { values, match = null, status = 'ok', message = null } = await LOOKUPS[parsed.kind](parsed, metadata);
-  const item = { ...base, match, status, message };
-  const rendered = renderPattern(patterns[parsed.kind], values);
+  const { values, match = null, status = 'ok', message = null } = await LOOKUPS[parsed.kind as MediaKind](parsed, metadata);
+  const item: PreviewItem = { ...base, match, status, message };
+  const rendered = renderPattern(patterns[parsed.kind as MediaKind], values);
   if (!rendered) return { ...item, status: 'error', message: 'Pattern produced an empty name' };
   const fileName = `${rendered}${parsed.language ? `.${parsed.language}` : ''}${parsed.extension}`;
   const directory = path.posix.dirname(rel);
@@ -55,8 +82,8 @@ async function describe(rel, parsed, patterns, metadata, { moving = false } = {}
 }
 
 /** Mark items that are already named correctly or that collide with each other or an existing file. */
-async function markConflicts(root, items) {
-  const byTarget = new Map();
+async function markConflicts(root: string, items: PreviewItem[]): Promise<void> {
+  const byTarget = new Map<string, PreviewItem>();
   for (const item of items) {
     if (!item.newRel || !['ok', 'warning'].includes(item.status)) continue;
     const destination = item.target ?? root;
@@ -67,7 +94,7 @@ async function markConflicts(root, items) {
     }
     const key = `${destination}\0${item.newRel.toLowerCase()}`;
     if (byTarget.has(key)) {
-      for (const duplicate of [byTarget.get(key), item]) {
+      for (const duplicate of [byTarget.get(key)!, item]) {
         Object.assign(duplicate, { status: 'conflict', message: 'Another file maps to the same name' });
       }
       continue;
@@ -81,19 +108,19 @@ async function markConflicts(root, items) {
 }
 
 /** Per-kind destinations from either `targets` ({ episode, movie }) or one shared `target`. */
-export function destinationsFrom({ target = null, targets } = {}) {
+export function destinationsFrom({ target = null, targets }: { target?: string | null; targets?: Partial<Targets> } = {}): Targets {
   return {
     episode: targets && targets.episode !== undefined ? targets.episode : target,
     movie: targets && targets.movie !== undefined ? targets.movie : target,
   };
 }
 
-function validatePatterns(patterns) {
+function validatePatterns(patterns: Patterns): void {
   for (const [kind, pattern] of Object.entries(patterns)) {
     try {
       validatePattern(pattern);
     } catch (error) {
-      throw new InputError(`${kind} pattern: ${error.message}`);
+      throw new InputError(`${kind} pattern: ${(error as Error).message}`);
     }
   }
 }
@@ -104,14 +131,14 @@ function validatePatterns(patterns) {
  * sets both; null renames in place). Each item's `newRel` is relative to its
  * `target`, or to `root` when the item stays in place.
  */
-export async function buildPreview({ root, target = null, targets, files, patterns = DEFAULT_PATTERNS, filters = DEFAULT_FILTERS, metadata, concurrency = 3 }) {
+export async function buildPreview({ root, target = null, targets, files, patterns = DEFAULT_PATTERNS, filters = DEFAULT_FILTERS, metadata, concurrency = 3 }: PreviewOptions): Promise<PreviewItem[]> {
   if (!Array.isArray(files)) throw new InputError('files must be an array');
   if (files.length > MAX_FILES) throw new InputError(`At most ${MAX_FILES} files can be previewed at once`);
-  const destinations = destinationsFrom({ target, targets });
-  const effective = { ...DEFAULT_PATTERNS, ...patterns };
+  const destinations: Partial<Record<ParsedKind, string | null>> = destinationsFrom({ target, targets });
+  const effective: Patterns = { ...DEFAULT_PATTERNS, ...patterns };
   validatePatterns(effective);
 
-  const failure = (rel, status, message) => ({ rel, kind: 'unknown', newRel: null, target: null, status, match: null, message });
+  const failure = (rel: string, status: ItemStatus, message: string): PreviewItem => ({ rel, kind: 'unknown', newRel: null, target: null, status, match: null, message });
   const items = await mapLimit(files, concurrency, async (input) => {
     let rel = input;
     try {
@@ -125,7 +152,7 @@ export async function buildPreview({ root, target = null, targets, files, patter
       if (item.newRel) item.target = destination;
       return item;
     } catch (error) {
-      return failure(rel, 'error', error.message);
+      return failure(rel, 'error', (error as Error).message);
     }
   });
   await markConflicts(root, items);

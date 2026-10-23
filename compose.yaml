@@ -3,7 +3,8 @@
 services:
   media-renamer:
     build: .
-    image: media-renamer:latest
+    # Set MEDIA_RENAMER_IMAGE=ghcr.io/mrgamewatch/media-renamer:latest to pull the published image instead of building.
+    image: ${MEDIA_RENAMER_IMAGE:-media-renamer:latest}
     container_name: media-renamer
     # Stable hostname: lets a restarted or recreated container recognise its own stale job lock.
     hostname: media-renamer

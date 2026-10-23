@@ -1,7 +1,19 @@
 version: 2
 updates:
-  # Konfiguration für Node.js-Abhängigkeiten
-  - package-ecosystem: "npm" # Gilt für npm, yarn und pnpm
-    directory: "/" # Pfad zur package.json
+  # Pinned actions in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: "weekly" # Überprüfung einmal pro Woche (Alternativen: daily, monthly)
+      interval: "weekly"
+
+  # Base image in the Dockerfile (node:22-alpine)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # npm dependencies (none yet; kept so new ones are watched automatically)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"

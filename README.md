@@ -28,11 +28,14 @@ The image is multi-arch (x86-64 and ARM, e.g. Raspberry Pi). It runs as an unpri
    MEDIA_RENAMER_MOVIE_TARGET=/media/Movies
    ```
 3. Start it.
-   - **SSH:** `mkdir -p config && docker compose up -d --build` in that folder.
-   - **OMV web UI** (Services → Compose → Files): paste `compose.yaml` and the `.env` contents. The compose plugin needs the image to exist or a build context, so building once over SSH (or `docker build -t media-renamer:latest .`) is simplest.
+   - **Prebuilt image (no build on the NAS):** set `MEDIA_RENAMER_IMAGE=ghcr.io/mrgamewatch/media-renamer:latest` in `.env`, then `mkdir -p config && docker compose pull && docker compose up -d`. `latest` is the newest release; use a release number such as `0.8` to stay on one version, or `main` for the current development state.
+   - **Build locally over SSH:** `mkdir -p config && docker compose up -d --build` in that folder.
+   - **OMV web UI** (Services → Compose → Files): paste `compose.yaml` and the `.env` contents. The compose plugin needs the image to exist or a build context, so either set `MEDIA_RENAMER_IMAGE` to the prebuilt image or build once over SSH (or `docker build -t media-renamer:latest .`).
 4. Open `http://<nas>:4173/`, log in with your password, and click **Browse…**. Only the folders in `MEDIA_RENAMER_ROOTS` are visible.
 
-**Updating:** `git pull && docker compose up -d --build`. Your `.env` and `config/` are not tracked by git, so updates never touch them.
+**Updating:** with the prebuilt image, `docker compose pull && docker compose up -d`; when building locally, `git pull && docker compose up -d --build`. Your `.env` and `config/` are not tracked by git, so updates never touch them.
+
+**Releases:** pushing a tag such as `v0.9` or `v1.10` runs the tests and publishes the image as `0.9` / `1.10` and `latest` for `linux/amd64`, `linux/arm64` and `linux/arm/v7`. Every push to `main` publishes `main`.
 
 The CLI is available inside the container and uses the same configuration:
 

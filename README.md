@@ -6,7 +6,7 @@ Rename movie and TV episode files from public metadata and optionally move them 
 - **Movies** are matched on [TMDB](https://developer.themoviedb.org/) with an API key from the server configuration. Without a key, movies keep the name and year parsed from the file name and are marked as warnings.
 - Every rename is previewed first and validated to stay inside the allowed folders. A batch is applied all-or-nothing and recorded in `<source>/.media-renamer-undo.json` so it can be undone.
 
-Requires Node.js 26 or newer and has no npm dependencies.
+Requires Node.js 26 or newer. The server has no runtime npm dependencies: it is written in TypeScript, which Node 26 runs directly. The web UI is React 19, built once with Vite (`npm ci && npm run build`); the Docker image does this for you.
 
 ## Deploy on openmediavault (Docker)
 
@@ -28,7 +28,7 @@ The image is multi-arch for 64-bit systems: x86-64 and ARM64 (e.g. a Raspberry P
    MEDIA_RENAMER_MOVIE_TARGET=/media/Movies
    ```
 3. Start it.
-   - **Prebuilt image (no build on the NAS):** set `MEDIA_RENAMER_IMAGE=ghcr.io/mrgamewatch/media-renamer:latest` in `.env`, then `mkdir -p config && docker compose pull && docker compose up -d`. `latest` is the newest release; use a release number such as `0.8` to stay on one version, or `main` for the current development state.
+   - **Prebuilt image (no build on the NAS):** set `MEDIA_RENAMER_IMAGE=ghcr.io/mrgamewatch/media-renamer:latest` in `.env`, then `mkdir -p config && docker compose pull && docker compose up -d`. `latest` is the newest release; use a release number such as `0.8` to stay on one version, or `main` for the current development state. To try a pull request before it is merged, use `pr-<number>` (e.g. `pr-12`); each push to a pull request from this repository updates that image, and the CI run's summary shows the exact pull command.
    - **Build locally over SSH:** `mkdir -p config && docker compose up -d --build` in that folder.
    - **OMV web UI** (Services → Compose → Files): paste `compose.yaml` and the `.env` contents. The compose plugin needs the image to exist or a build context, so either set `MEDIA_RENAMER_IMAGE` to the prebuilt image or build once over SSH (or `docker build -t media-renamer:latest .`).
 4. Open `http://<nas>:4173/`, log in with your password, and click **Browse…**. Only the folders in `MEDIA_RENAMER_ROOTS` are visible.
@@ -166,9 +166,12 @@ The options are in the web UI under **Automatic import** (saved with **Save as d
 ## Web app
 
 ```bash
-npm start                      # or: node bin/media-renamer.js serve --port 4173
+npm ci && npm run build        # once, and after changing web/: builds the web UI into dist/web
+npm start                      # or: node bin/media-renamer.ts serve --port 4173
 open http://127.0.0.1:4173/
 ```
+
+While working on the web UI, run `npm start` and `npm run dev` side by side and open the address Vite prints: it reloads on every change and forwards API calls to the server on port 4173. Restart `npm start` after a new `npm run build`, since the server indexes the build once.
 
 1. Click **Browse…** to choose the folder to rename, or type a path. Choosing a folder starts the scan.
 2. Under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save as default** keeps these settings for next time.
@@ -257,11 +260,37 @@ Each preview item has the shape `{ rel, kind, newRel, target, status, match, mes
 
 Defaults are `{n} - {s00e00} - {t}` for episodes and `{n} ({y})` for movies. Unsafe characters are removed, `:` becomes ` - `, and empty `()`/`[]` from missing values are dropped. Subtitle language suffixes such as `.en.srt` are preserved.
 
+## Code layout
+
+| Path | Contents |
+| --- | --- |
+| `server.ts` | Web server: request handling, login, startup and shutdown |
+| `bin/media-renamer.ts` | CLI entry point; dispatches to `lib/cli/` |
+| `lib/renamer.ts` | Public API of the rename engine; the parts live in `lib/rename/` (scan, preview, lock, undo journal, apply, undo) |
+| `lib/settings.ts` | Public API of the settings; the parts live in `lib/settings/` (environment defaults, validation, saved file) |
+| `lib/server/` | Routes grouped by area (`routes/`), the import hook, static files, HTTP helpers and the folder policy |
+| `lib/cli/` | Help text, argument parsing, output formats, plans and the commands |
+| `lib/types.ts`, `lib/job-types.ts` | Shared data types: settings, preview items, the undo journal; jobs and imports |
+| `lib/api-types.ts` | The HTTP API: request and response of every `/api/…` route, used by the server and the web UI |
+| `lib/importer.ts`, `lib/jobs.ts` | Automatic import pipeline and the background job queue |
+| `lib/parse.ts`, `lib/format.ts`, `lib/metadata.ts` | File-name parsing, naming patterns, TMDB/TVmaze lookups |
+| `lib/mover.ts`, `lib/audio.ts` | Safe moves across disks, and the Dolby Digital Plus audio fix |
+| `web/` | Web UI (React 19, Vite): `index.html` and `login.html`; `public/` holds icons, the manifest and the service worker, copied as they are |
+| `web/src/` | `App.tsx` lays out the page; `hooks/` hold the logic (settings form, rename workflow, activity polling, notifications) and `components/` the panels, file table and folder picker |
+| `vite.config.ts` | Builds `web/` into `dist/web` |
+
+The server serves only the files in `dist/web`. The login page, the files it needs (read from Vite's manifest) and the top-level files from `web/public` load without logging in; everything else requires it.
+
 ## Tests
 
 ```bash
+npm ci                 # dev tools: TypeScript, Vite, React
+npm run typecheck      # tsc over the backend (tsconfig.json) and the web UI (web/tsconfig.json)
+npm run build          # the web UI
 npm test
 ```
+
+The tests don't need a build: they serve a small stand-in (`test/web-fixture.js`). The backend only uses TypeScript syntax that Node can strip (no `enum`, `namespace` or constructor parameter properties; `erasableSyntaxOnly` enforces this). Relative imports keep their `.ts` extension.
 
 Tests replace metadata lookups with fakes and use temporary folders, so they make no network calls. They cover parsing, patterns, moves and the cross-device fallback, the CLI, configuration, and the server's authentication, Host check and folder confinement.
 

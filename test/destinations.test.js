@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { applyRenames, buildPreview, undoLast, UNDO_LOG } from '../lib/renamer.js';
+import { applyRenames, buildPreview, undoLast, UNDO_LOG } from '../lib/renamer.ts';
 
 async function tempDir(prefix) {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));

@@ -1,0 +1,14 @@
+import type { Filters, MediaKind, Patterns } from './types.ts';
+
+/** The two kinds of media the renamer knows; each has its own pattern and destination. */
+export const KINDS: readonly MediaKind[] = Object.freeze(['episode', 'movie']);
+
+export const DEFAULT_PATTERNS: Readonly<Patterns> = Object.freeze({
+  episode: '{n} - {s00e00} - {t}',
+  movie: '{n} ({y})',
+});
+
+export const DEFAULT_FILTERS: Readonly<Filters> = Object.freeze({ videoOnly: false, excludeSamples: true });
+
+/** Most files scanned or previewed at once. */
+export const MAX_FILES = 5000;

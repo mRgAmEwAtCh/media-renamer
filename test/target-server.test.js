@@ -6,11 +6,12 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { hostnameOf, loadConfig } from '../lib/config.js';
-import { applyRenames, buildPreview, moveFile, undoLast, UNDO_LOG } from '../lib/renamer.js';
-import { createServer } from '../server.js';
+import { hostnameOf, loadConfig } from '../lib/config.ts';
+import { applyRenames, buildPreview, moveFile, undoLast, UNDO_LOG } from '../lib/renamer.ts';
+import { createServer } from '../server.ts';
+import { createWebFixture, FIXTURE } from './web-fixture.js';
 
-const CLI = path.resolve(import.meta.dirname, '../bin/media-renamer.js');
+const CLI = path.resolve(import.meta.dirname, '../bin/media-renamer.ts');
 
 async function tempDir(prefix) {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
@@ -251,7 +252,7 @@ describe('web server on a NAS', () => {
       },
       { port: 0 },
     );
-    server = createServer(config);
+    server = createServer(config, { webDir: await createWebFixture() });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     port = server.address().port;
   });
@@ -307,7 +308,8 @@ describe('web server on a NAS', () => {
       assert.equal(response.status, 200, pathname);
       assert.ok(response.headers['content-type'].startsWith(type), pathname);
     }
-    assert.equal((await request('/app.js', { password: null })).status, 401);
+    assert.equal((await request(FIXTURE.appChunk, { password: null })).status, 401);
+    assert.equal((await request(FIXTURE.loginChunk, { password: null })).status, 200);
     assert.equal(JSON.parse((await request('/manifest.webmanifest', { password: null })).text).name, 'Media Renamer');
   });
 

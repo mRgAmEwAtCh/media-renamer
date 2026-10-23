@@ -5,10 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { audioToolsAvailable, probeFile } from '../lib/audio.js';
-import { removeEmptyFolders, runImport, waitForStableFiles } from '../lib/importer.js';
-import { undoLast } from '../lib/renamer.js';
-import { envSettings, mergeSettings } from '../lib/settings.js';
+import { audioToolsAvailable, probeFile } from '../lib/audio.ts';
+import { removeEmptyFolders, runImport, waitForStableFiles } from '../lib/importer.ts';
+import { undoLast } from '../lib/renamer.ts';
+import { envSettings, mergeSettings } from '../lib/settings.ts';
 
 const run = promisify(execFile);
 const hasFfmpeg = await audioToolsAvailable();

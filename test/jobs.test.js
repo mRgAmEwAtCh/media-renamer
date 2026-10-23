@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { PARTIAL_PREFIX, sweepPartials } from '../lib/mover.js';
-import { applyRenames, CancelledError, moveFile, undoLast, UNDO_LOG } from '../lib/renamer.js';
+import { PARTIAL_PREFIX, sweepPartials } from '../lib/mover.ts';
+import { applyRenames, CancelledError, moveFile, undoLast, UNDO_LOG } from '../lib/renamer.ts';
 
 const exdev = async () => {
   throw Object.assign(new Error('cross-device link not permitted'), { code: 'EXDEV' });

@@ -1,0 +1,21 @@
+{
+  // Type checking only: Node runs the .ts files directly by stripping the types,
+  // so only erasable syntax is allowed (no enums, namespaces or parameter properties).
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "lib": ["esnext"],
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": ["server.ts", "bin/**/*.ts", "lib/**/*.ts", "vite.config.ts"]
+}

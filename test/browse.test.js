@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { listDirectory, listPlaces } from '../lib/browse.js';
-import { nativeDialogCommand, pickFolderNative } from '../lib/native-dialog.js';
-import { InputError } from '../lib/renamer.js';
+import { listDirectory, listPlaces } from '../lib/browse.ts';
+import { nativeDialogCommand, pickFolderNative } from '../lib/native-dialog.ts';
+import { InputError } from '../lib/renamer.ts';
 
 async function tempTree() {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'media-browse-')));

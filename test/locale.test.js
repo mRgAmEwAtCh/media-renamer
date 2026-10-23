@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { loadConfig } from '../lib/config.js';
-import { renderPattern } from '../lib/format.js';
-import { MetadataClient, normalizeLanguage, normalizeRegion } from '../lib/metadata.js';
-import { buildPreview } from '../lib/renamer.js';
+import { loadConfig } from '../lib/config.ts';
+import { renderPattern } from '../lib/format.ts';
+import { MetadataClient, normalizeLanguage, normalizeRegion } from '../lib/metadata.ts';
+import { buildPreview } from '../lib/renamer.ts';
 
 /** Fake fetch that answers from a route table and records every request URL. */
 function fakeFetch(routes) {

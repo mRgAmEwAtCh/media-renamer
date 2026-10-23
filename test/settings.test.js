@@ -5,9 +5,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { envSettings, mergeSettings, readSavedSettings, sanitizeSettings, writeSavedSettings } from '../lib/settings.js';
+import { envSettings, mergeSettings, readSavedSettings, sanitizeSettings, writeSavedSettings } from '../lib/settings.ts';
 
-const CLI = path.resolve(import.meta.dirname, '../bin/media-renamer.js');
+const CLI = path.resolve(import.meta.dirname, '../bin/media-renamer.ts');
 
 async function tempDir(prefix) {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));

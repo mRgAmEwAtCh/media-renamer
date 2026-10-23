@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { JobManager } from '../lib/jobs.js';
-import { actionNeeded, encryptPayload, Push } from '../lib/push.js';
+import { JobManager } from '../lib/jobs.ts';
+import { actionNeeded, encryptPayload, Push } from '../lib/push.ts';
 
 const hmac = (key, data) => createHmac('sha256', key).update(data).digest();
 

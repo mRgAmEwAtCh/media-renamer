@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { renderPattern, validatePattern } from '../lib/format.js';
-import { parseMediaFile } from '../lib/parse.js';
+import { renderPattern, validatePattern } from '../lib/format.ts';
+import { parseMediaFile } from '../lib/parse.ts';
 
 test('parses SxxEyy episodes with release tags', () => {
   const parsed = parseMediaFile('Breaking.Bad.S01E02.720p.HDTV.x264.mkv');

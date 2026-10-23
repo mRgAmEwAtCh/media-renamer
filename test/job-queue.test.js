@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { JobManager } from '../lib/jobs.js';
+import { JobManager } from '../lib/jobs.ts';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 

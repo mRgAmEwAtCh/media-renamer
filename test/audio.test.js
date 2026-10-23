@@ -13,8 +13,8 @@ import {
   parseProgressLine,
   planAudioFix,
   probeFile,
-} from '../lib/audio.js';
-import { CancelledError } from '../lib/mover.js';
+} from '../lib/audio.ts';
+import { CancelledError } from '../lib/mover.ts';
 
 const run = promisify(execFile);
 const hasFfmpeg = await audioToolsAvailable();

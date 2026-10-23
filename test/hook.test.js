@@ -5,8 +5,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { loadConfig } from '../lib/config.js';
-import { createServer } from '../server.js';
+import { loadConfig } from '../lib/config.ts';
+import { createServer } from '../server.ts';
 
 const TOKEN = 'test-hook-token-0123456789abcdef';
 let server;

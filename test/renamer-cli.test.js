@@ -6,11 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { MetadataClient } from '../lib/metadata.js';
-import { applyRenames, buildPreview, InputError, resolveRoot, scanFolder, undoLast, UNDO_LOG } from '../lib/renamer.js';
+import { MetadataClient } from '../lib/metadata.ts';
+import { applyRenames, buildPreview, InputError, resolveRoot, scanFolder, undoLast, UNDO_LOG } from '../lib/renamer.ts';
 
 const run = promisify(execFile);
-const CLI = path.resolve(import.meta.dirname, '../bin/media-renamer.js');
+const CLI = path.resolve(import.meta.dirname, '../bin/media-renamer.ts');
 
 async function tempLibrary(files) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'media-renamer-')));

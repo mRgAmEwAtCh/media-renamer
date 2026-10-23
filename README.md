@@ -142,7 +142,7 @@ Each import runs these steps, all shown live in the web UI's **Activity** panel:
 6. **Convert and move** with the normal engine: journalled, undoable, with progress and **Cancel**.
 7. **Clean up** extraction folders left empty (optional).
 
-Imports run one at a time, after any rename already running. A second call for a folder that is already waiting joins that job. The queue and the history (the last 50 finished jobs) are saved in `jobs.json` in the config folder, so the Activity panel survives restarts: an import waiting or running when the server stops runs again after the restart. **Clear history** in the Activity panel removes the finished jobs; waiting and running jobs stay, and undo is not affected. Imports can be undone with **Undo last batch** on the allowed folder that contains them (e.g. `/media/Downloads`).
+Imports run one at a time, after any rename already running. A second call for a folder that is already waiting joins that job. The queue and the history (the last 50 finished jobs) are saved in `jobs.json` in the config folder, so the Activity panel survives restarts: an import waiting or running when the server stops runs again after the restart. **Clear history** in the Activity panel removes the finished jobs; waiting and running jobs stay, and undo is not affected. A job that finished with nothing left to do (no failures, no files waiting for review) can also be removed on its own: swipe it sideways on a phone, or click its **✕**; **Undo** brings it back for a few seconds. Imports can be undone with **Undo last batch** on the allowed folder that contains them (e.g. `/media/Downloads`).
 
 ### Notifications
 

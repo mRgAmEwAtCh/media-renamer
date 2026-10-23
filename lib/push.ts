@@ -2,7 +2,6 @@ import { createECDH, createHmac, createPrivateKey, createCipheriv, generateKeyPa
 import fs from 'node:fs/promises';
 import type { webcrypto } from 'node:crypto';
 import { writeFileAtomic } from './fs-utils.ts';
-import type { JobSnapshot } from './types.ts';
 
 /** The keys a browser hands out with its push subscription (base64url). */
 export interface PushKeys {
@@ -59,18 +58,7 @@ export function encryptPayload(payload: string, { p256dh, auth }: PushKeys, fixe
   return Buffer.concat([header, localPublic, body]);
 }
 
-/** The message for a finished job that needs the user, or null. */
-export function actionNeeded(job: JobSnapshot): PushMessage | null {
-  const name = job.label ?? (job.kind === 'import' ? 'Import' : 'Rename');
-  if (job.state === 'failed') return { title: `Failed: ${name}`, body: job.error ?? 'The job failed.' };
-  const result = (job.result ?? {}) as { failed?: unknown[] | number; review?: number };
-  const failed = Array.isArray(result.failed) ? result.failed.length : (result.failed ?? 0);
-  const parts = [
-    result.review ? `${result.review} file${result.review === 1 ? ' needs' : 's need'} review` : '',
-    failed ? `${failed} file${failed === 1 ? '' : 's'} failed` : '',
-  ].filter(Boolean);
-  return parts.length ? { title: `Action needed: ${name}`, body: parts.join(' · ') } : null;
-}
+export { actionNeeded } from './job-attention.ts';
 
 /**
  * Web push to the browsers that subscribed. Keys and subscriptions live in

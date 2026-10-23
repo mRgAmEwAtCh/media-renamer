@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { InputError } from './errors.ts';
+import { canDismiss } from './job-attention.ts';
 import { JobStore } from './job-store.ts';
 import type { JobControl, JobKind, JobRunner, JobSnapshot, JobState, Progress, StepDefinition, StepPatch, ImportRow } from './types.ts';
 
@@ -214,14 +215,19 @@ export class JobManager {
 
   /** Forget all finished jobs; queued and running jobs stay. */
   async clear(): Promise<number> {
-    let removed = 0;
-    for (const [id, job] of this.jobs) {
-      if (ACTIVE_STATES.has(job.state)) continue;
-      this.jobs.delete(id);
-      removed += 1;
-    }
+    const finished = [...this.jobs.values()].filter((job) => !ACTIVE_STATES.has(job.state));
+    for (const job of finished) this.jobs.delete(job.id);
     await this.save();
-    return removed;
+    return finished.length;
+  }
+
+  /** Forget one job that finished with nothing left to look at (see canDismiss). */
+  async remove(id: string): Promise<void> {
+    const job = this.jobs.get(id);
+    if (!job) throw new InputError('Unknown job', { status: 404 });
+    if (!canDismiss(job)) throw new InputError('Only finished jobs that need no attention can be removed', { status: 409 });
+    this.jobs.delete(id);
+    await this.save();
   }
 
   /**

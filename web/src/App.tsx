@@ -132,6 +132,9 @@ export function App() {
           clearing={activity.clearing}
           onClear={activity.clear}
           onCancel={activity.cancel}
+          onRemove={activity.remove}
+          removed={activity.removed}
+          onUndoRemove={activity.undoRemove}
           onOpenFolder={(folder) => {
             renamer.setRoot(folder);
             window.scrollTo({ top: 0, behavior: 'smooth' });

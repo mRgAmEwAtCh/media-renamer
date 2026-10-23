@@ -130,10 +130,24 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 
 /* minmax(0, …) and min-width: 0 let cards shrink to the screen instead of growing to fit long release names. */
 .activity { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
-.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); }
+.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%), var(--panel); position: relative; }
+/* Swipe a finished card sideways to remove it; the red hint shows underneath while swiping. */
+.activity-row { position: relative; min-width: 0; border-radius: 8px; }
+.activity-remove-hint { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; border-radius: 8px; background: var(--bad); color: #fff; font-weight: 600; }
+.activity-row.dismissable .activity-item { touch-action: pan-y; transition: transform 0.18s ease; }
+.activity-item.dragging { user-select: none; cursor: grabbing; }
+.snackbar {
+  position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10;
+  display: flex; align-items: center; gap: 1rem; max-width: calc(100vw - 2rem); overflow-wrap: anywhere;
+  padding: 0.6rem 1rem; border-radius: 8px; background: var(--text); color: var(--bg); box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
+}
+.snackbar button.link { color: inherit; font-weight: 700; text-decoration: underline; min-height: 0; flex: none; }
 .activity-item.state-running, .activity-item.state-cancelling { border-color: var(--accent); }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
 .activity-head strong { flex: 1 1 100%; min-width: 0; }
+/* With a ✕, the title leaves room for it on the same line. */
+.activity-head strong:has(+ .dismiss) { flex-basis: calc(100% - 3.5rem); }
+.activity-head button.dismiss { margin-left: auto; align-self: flex-start; }
 .activity-head button { margin-left: auto; }
 .activity-summary { margin: 0.3rem 0; }
 .activity-progress progress { width: 100%; accent-color: var(--accent); }

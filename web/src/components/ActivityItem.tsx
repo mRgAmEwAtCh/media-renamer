@@ -1,6 +1,8 @@
 import type { ImportResult, JobSnapshot, Step } from '../../../lib/types.ts';
 import { formatBytes, formatDay, formatTime } from '../format.ts';
+import { canDismiss } from '../../../lib/job-attention.ts';
 import { isActive } from '../hooks/useActivity.ts';
+import { useSwipeAway } from '../hooks/useSwipeAway.ts';
 import { Breakable } from './Breakable.tsx';
 
 const STATE_LABEL: Record<string, string> = {
@@ -23,7 +25,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   'not processed': 'Not processed',
 };
 
-function title(job: JobSnapshot): string {
+export function title(job: JobSnapshot): string {
   if (job.kind === 'import') return `Import: ${job.label ?? job.params?.path ?? ''}`;
   return job.label ?? (job.kind === 'undo' ? 'Undo last batch' : 'Rename');
 }
@@ -119,28 +121,54 @@ function Files({ job, onOpenFolder }: { job: JobSnapshot; onOpenFolder: (folder:
   );
 }
 
-/** One job in the Activity list: state, summary, progress, steps and per-file results. */
-export function ActivityItem({ job, onCancel, onOpenFolder }: { job: JobSnapshot; onCancel: () => void; onOpenFolder: (folder: string) => void }) {
+interface ActivityItemProps {
+  job: JobSnapshot;
+  onCancel: () => void;
+  onRemove: () => void;
+  onOpenFolder: (folder: string) => void;
+}
+
+/**
+ * One job in the Activity list: state, summary, progress, steps and per-file
+ * results. A job that finished with nothing left to look at can be swiped away
+ * (or removed with ✕).
+ */
+export function ActivityItem({ job, onCancel, onRemove, onOpenFolder }: ActivityItemProps) {
   const source = job.source === 'hook' ? 'via hook' : (job.source ?? '');
+  const dismissable = canDismiss(job);
+  const swipe = useSwipeAway(onRemove, dismissable);
   return (
-    <li className={`activity-item state-${job.state}`}>
-      <div className="activity-head">
-        <strong>
-          <Breakable text={title(job)} />
-        </strong>
-        <span className={`badge badge-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
-        <span className="hint">{`${source} · ${formatDay(job.queuedAt)} ${formatTime(job.startedAt ?? job.queuedAt)}`}</span>
-        {isActive(job) && job.state !== 'cancelling' && (
-          <button type="button" onClick={onCancel}>
-            {job.state === 'queued' ? 'Remove' : 'Cancel'}
-          </button>
-        )}
+    <li className={`activity-row${dismissable ? ' dismissable' : ''}`}>
+      {dismissable && (
+        <div className="activity-remove-hint" aria-hidden="true">
+          <span>Remove</span>
+          <span>Remove</span>
+        </div>
+      )}
+      <div className={`activity-item state-${job.state}${swipe.dragging ? ' dragging' : ''}`} style={swipe.style} {...swipe.handlers}>
+        <div className="activity-head">
+          <strong>
+            <Breakable text={title(job)} />
+          </strong>
+          {dismissable && (
+            <button type="button" className="icon dismiss" aria-label={`Remove “${title(job)}” from the history`} title="Remove from the history" onClick={onRemove}>
+              ✕
+            </button>
+          )}
+          <span className={`badge badge-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
+          <span className="hint">{`${source} · ${formatDay(job.queuedAt)} ${formatTime(job.startedAt ?? job.queuedAt)}`}</span>
+          {isActive(job) && job.state !== 'cancelling' && (
+            <button type="button" onClick={onCancel}>
+              {job.state === 'queued' ? 'Remove' : 'Cancel'}
+            </button>
+          )}
+        </div>
+        <p className="activity-summary">{summary(job)}</p>
+        {job.note && job.state !== 'queued' && <p className="hint">{job.note}</p>}
+        <Progress job={job} />
+        <Steps steps={job.steps} />
+        <Files job={job} onOpenFolder={onOpenFolder} />
       </div>
-      <p className="activity-summary">{summary(job)}</p>
-      {job.note && job.state !== 'queued' && <p className="hint">{job.note}</p>}
-      <Progress job={job} />
-      <Steps steps={job.steps} />
-      <Files job={job} onOpenFolder={onOpenFolder} />
     </li>
   );
 }

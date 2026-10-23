@@ -69,6 +69,12 @@ export function jobRoutes({ jobs, policy, allowedRoot, allowedTarget }: RouteCon
       return { job: jobs.cancel(body.id) };
     },
 
+    async '/api/job/remove'(body: RequestBody): Promise<ApiResponse<'/api/job/remove'>> {
+      if (typeof body.id !== 'string') throw new InputError('Job id required');
+      await jobs.remove(body.id);
+      return { removed: true };
+    },
+
     async '/api/jobs/clear'(): Promise<ApiResponse<'/api/jobs/clear'>> {
       return { removed: await jobs.clear() };
     },

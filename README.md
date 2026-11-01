@@ -176,7 +176,7 @@ While working on the web UI, run `npm start` and `npm run dev` side by side and 
 The page has three views, linked in the header and in the address bar (`#/rename`, `#/activity`, `#/settings`), so Back works and links can be bookmarked:
 
 - **Rename**: the *Needs review* inbox, the folder, and the file table with a sticky action bar. A line under the folder shows where files go, with a link to Settings.
-- **Activity**: running and finished jobs. Finished jobs are collapsed (**Details** shows the steps and files); filter by **Needs review** or **Failed**, 10 at a time with **Show more**. The tab shows a yellow counter for imports that need review and a pulsing blue dot while a job runs.
+- **Activity**: running and finished jobs. Finished jobs are collapsed; click anywhere on a card or use its chevron to expand or collapse the steps and file overview. Running jobs start expanded. Files are shown directly, without a second toggle. Resolve and Cancel remain independent actions. Filter by **Needs review** or **Failed**, 10 at a time with **Show more**. The tab shows a yellow counter for imports that need review and a pulsing blue dot while a job runs.
 - **Settings**: naming patterns, destinations, language, filters and automatic import.
 
 Settings changed but not saved are marked with a yellow dot on the tab. Leaving Settings, or previewing with changed naming or destination settings, asks to **Save as default**, **Discard changes** or **Keep editing**, so previews never silently differ from what imports use.

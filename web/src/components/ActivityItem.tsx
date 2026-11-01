@@ -152,9 +152,10 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
   return (
     <li className={`activity-row${dismissable ? ' dismissable' : ''}`}>
       {dismissable && <div className="activity-remove-hint" aria-hidden="true"><span>Remove</span><span>Remove</span></div>}
-      <div style={swipe.style} {...swipe.handlers}>
     <div
-      className={`activity-item state-${job.state}${toReview ? ' to-review' : ''}${hasDetails ? ' expandable' : ''}`}
+      style={swipe.style}
+      {...swipe.handlers}
+      className={`activity-item state-${job.state}${toReview ? ' to-review' : ''}${hasDetails ? ' expandable' : ''}${swipe.dragging ? ' dragging' : ''}`}
       onClick={(event) => {
         if (!hasDetails) return;
         if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) return;
@@ -201,7 +202,6 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
         <Progress job={job} />
         <Steps steps={job.steps} />
         <Files job={job} onOpenFolder={onOpenFolder} />
-      </div>
       </div>
       </div>
     </li>

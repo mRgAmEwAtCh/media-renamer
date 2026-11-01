@@ -263,6 +263,9 @@ footer.credits a { color: inherit; }
 fieldset.automation { margin-bottom: 0.75rem; }
 fieldset.automation .checkbox { padding-bottom: 0; color: var(--text); }
 select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; }
+.language-field { min-width: 0; }
+.language-field select { width: 100%; }
+.custom-language { margin-top: 0.3rem; }
 
 /* minmax(0, …) and min-width: 0 let cards shrink to the screen instead of growing to fit long release names. */
 .activity { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }

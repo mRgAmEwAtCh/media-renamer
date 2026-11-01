@@ -175,12 +175,14 @@ While working on the web UI, run `npm start` and `npm run dev` side by side and 
 
 The page has three views, linked in the header and in the address bar (`#/rename`, `#/activity`, `#/settings`), so Back works and links can be bookmarked:
 
-- **Rename**: the *Needs review* inbox, the folder, and the file table with a sticky action bar. A line under the folder shows where files go, with a link to Settings.
+- **Rename**: the *Needs review* inbox, the folder, and the file table. A line under the folder shows where files go, with a link to Settings.
 - **Activity**: running and finished jobs. Finished jobs are collapsed; click anywhere on a card or use its chevron to expand or collapse the steps and file overview. Running jobs start expanded. Files are shown directly, without a second toggle. Resolve and Cancel remain independent actions. Filter by **Needs review** or **Failed**, 10 at a time with **Show more**. The tab shows a yellow counter for imports that need review and a pulsing blue dot while a job runs.
 - Cards with no steps, files, notes or live progress have no chevron or expand/collapse interaction.
 - **Settings**: naming patterns, destinations, language, filters and automatic import.
 
 Language and Region use native dropdowns (including the phone's system picker). Choose **Custom language…** or **Custom region…** to enter a code not in the list; existing custom codes are preserved. Region also offers **No region preference**.
+
+Rename and Settings actions stay docked to the bottom of the viewport. The page reserves their height, including the phone's safe area, so files and credits remain reachable. Status messages scroll with the page instead of increasing the dock's height.
 
 Settings changed but not saved are marked with a yellow dot on the tab. Leaving Settings, or previewing with changed naming or destination settings, asks to **Save**, **Discard changes** or **Keep editing**, so previews never silently differ from what imports use.
 

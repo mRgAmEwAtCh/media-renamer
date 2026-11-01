@@ -224,7 +224,7 @@ export function FileTable({ items, version, busy, review, onChange, onKeepBoth, 
           )}
         </tbody>
       </table>
-      <div className="action-bar">{actions}</div>
+      {actions}
     </section>
   );
 }

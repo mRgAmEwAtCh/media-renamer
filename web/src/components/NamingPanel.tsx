@@ -2,6 +2,7 @@ import { useState, type RefObject } from 'react';
 import type { SettingsForm } from '../settings-form.ts';
 import type { SettingsState } from '../hooks/useSettings.ts';
 import { AutomationFields } from './AutomationFields.tsx';
+import { ActionBar } from './ActionBar.tsx';
 
 const LANGUAGES: [string, string][] = [
   ['de-DE', 'Deutsch'],
@@ -178,7 +179,8 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: N
         date, <code>{'{on}'}</code> original title. A <code>/</code> creates folders, e.g. <code>{'{n}/Season {s}/{s00e00} {t}'}</code>. Moved files
         start at the destination; files renamed in place keep their subfolder.
       </p>
-      <div className="row defaults">
+      <DefaultsStatus settings={settings} />
+      <ActionBar>
         <button type="button" className="primary" disabled={busy || !dirty} onClick={settings.save}>
           Save
         </button>
@@ -188,8 +190,7 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: N
         <button type="button" disabled={busy || !saved.exists} onClick={settings.reset}>
           Reset to server defaults
         </button>
-        <DefaultsStatus settings={settings} />
-      </div>
+      </ActionBar>
     </section>
   );
 }

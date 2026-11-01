@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type PointerEvent } from 'react';
+import { useRef, useState, type CSSProperties, type PointerEvent, type MouseEvent } from 'react';
 
 /** How far a finger moves before the gesture counts as a swipe or a scroll. */
 const START_PX = 10;
@@ -23,6 +23,7 @@ export function useSwipeAway(onDismiss: () => void, enabled: boolean) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const gesture = useRef<Gesture | null>(null);
+  const suppressClick = useRef(false);
 
   const end = () => {
     gesture.current = null;
@@ -31,6 +32,8 @@ export function useSwipeAway(onDismiss: () => void, enabled: boolean) {
 
   const handlers = {
     onPointerDown(event: PointerEvent<HTMLElement>) {
+      suppressClick.current = false;
+      if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) return;
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       gesture.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, horizontal: null };
     },
@@ -44,6 +47,7 @@ export function useSwipeAway(onDismiss: () => void, enabled: boolean) {
         current.horizontal = Math.abs(dx) > Math.abs(dy);
         if (!current.horizontal) return end();
         event.currentTarget.setPointerCapture(event.pointerId);
+        suppressClick.current = true;
         setDragging(true);
       }
       setOffset(dx);
@@ -61,6 +65,12 @@ export function useSwipeAway(onDismiss: () => void, enabled: boolean) {
     onPointerCancel() {
       end();
       setOffset(0);
+    },
+    onClickCapture(event: MouseEvent<HTMLElement>) {
+      if (!suppressClick.current) return;
+      suppressClick.current = false;
+      event.preventDefault();
+      event.stopPropagation();
     },
   };
 

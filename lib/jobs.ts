@@ -221,11 +221,11 @@ export class JobManager {
     return finished.length;
   }
 
-  /** Forget one job that finished with nothing left to look at (see canDismiss). */
+  /** Forget one terminal job without changing media files or undo records. */
   async remove(id: string): Promise<void> {
     const job = this.jobs.get(id);
     if (!job) throw new InputError('Unknown job', { status: 404 });
-    if (!canDismiss(job)) throw new InputError('Only finished jobs that need no attention can be removed', { status: 409 });
+    if (!canDismiss(job)) throw new InputError('Waiting and running jobs cannot be removed from the history', { status: 409 });
     this.jobs.delete(id);
     await this.save();
   }

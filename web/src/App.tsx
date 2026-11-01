@@ -14,6 +14,7 @@ import { selectedItems } from './items.ts';
 import { jobsToReview, readReviewed, saveReviewed } from './review.ts';
 import { useRoute, type View } from './route.ts';
 import { requestedTargets, type SettingsForm } from './settings-form.ts';
+import { ActionBar } from './components/ActionBar.tsx';
 import { isActive, useActivity } from './hooks/useActivity.ts';
 import { useRenamer } from './hooks/useRenamer.ts';
 import { useSettings } from './hooks/useSettings.ts';
@@ -279,7 +280,8 @@ export function App() {
               onCloseReview={renamer.closeReview}
               actions={
                 <>
-                  <div className="row">
+                  {statusLine}
+                  <ActionBar>
                     <button type="button" disabled={busy || !items.length} onClick={preview}>
                       {scan.previewed ? 'Preview again' : 'Retry preview'}
                     </button>
@@ -289,8 +291,7 @@ export function App() {
                     <button type="button" disabled={busy || !scan.root} onClick={renamer.undo}>
                       Undo last batch
                     </button>
-                  </div>
-                  {statusLine}
+                  </ActionBar>
                 </>
               }
             />

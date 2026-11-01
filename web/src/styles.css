@@ -30,6 +30,8 @@
 [hidden] { display: none !important; }
 
 body { margin: 0; background: var(--bg); color: var(--text); }
+#app { padding-bottom: var(--action-bar-height, 0px); }
+html { scroll-padding-bottom: calc(var(--action-bar-height, 0px) + 1rem); }
 
 #app > header, main { max-width: 1200px; margin: 0 auto; padding: 0 1.25rem; }
 /* The header with the view tabs stays at the top while scrolling. */
@@ -170,22 +172,21 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 #status { min-height: 1.4rem; margin: 0 0 1rem; }
-.action-bar #status { margin: 0.4rem 0 0; }
-.action-bar #status:empty { display: none; }
+#status:empty { display: none; }
 
-/* Preview / Rename / Undo stay in reach at the bottom of the screen while scrolling the files. */
+/* Reserve the measured dock height on #app so the last content stays reachable. */
 .action-bar {
-  position: sticky;
+  position: fixed;
   bottom: 0;
+  left: 0;
+  right: 0;
   z-index: 5;
-  margin: 0.75rem -1.25rem -1rem;
-  padding: 0.75rem 1.25rem;
+  padding: 0.75rem 0 calc(0.75rem + env(safe-area-inset-bottom, 0px));
   background: var(--panel);
   border-top: 1px solid var(--border);
-  border-radius: 0 0 10px 10px;
   box-shadow: 0 -6px 12px -10px rgb(0 0 0 / 0.35);
 }
-.row.defaults { position: sticky; bottom: 0; background: var(--panel); padding: 0.6rem 0; margin-bottom: 0; border-top: 1px solid var(--border); }
+.action-bar-content { max-width: 1200px; margin: 0 auto; padding: 0 1.25rem; align-items: center; }
 
 .settings-summary { margin: 0.25rem 0 0; }
 .settings-summary .dirty { color: var(--warn); font-weight: 600; }
@@ -388,8 +389,8 @@ dialog[aria-busy='true'] .folders { opacity: 0.5; }
   #app > header { gap: 0.4rem; }
   #app > header nav { width: 100%; margin-left: 0; }
   #app > header nav a { flex: 1; min-height: 40px; padding: 0 0.5rem; }
-  .action-bar { margin: 0.75rem -0.9rem -0.9rem; padding: 0.6rem 0.9rem; }
-  .action-bar .row button { flex: 1 1 auto; }
+  .action-bar-content { padding: 0 0.75rem; }
+  .action-bar-content button { flex: 1 1 auto; }
   .panel { padding: 0.9rem; }
 
   input[type='text'], input[type='password'], textarea, select { font-size: 16px; }

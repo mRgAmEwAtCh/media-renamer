@@ -272,7 +272,12 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .activity-item.dragging { user-select: none; cursor: grabbing; }
 .snackbar { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 1rem; max-width: calc(100vw - 2rem); overflow-wrap: anywhere; padding: 0.6rem 1rem; border-radius: 8px; background: var(--text); color: var(--bg); box-shadow: 0 4px 16px rgb(0 0 0 / 30%); }
 .snackbar button.link { color: inherit; font-weight: 700; text-decoration: underline; min-height: 0; flex: none; }
-.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); }
+.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); cursor: pointer; }
+.activity-item:hover { border-color: color-mix(in srgb, var(--text) 30%, var(--border)); }
+.activity-toggle { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border-color: transparent; background: transparent; color: var(--muted); }
+.activity-toggle:hover { background: var(--bg); color: var(--text); }
+.activity-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.activity-toggle[aria-expanded='true'] svg { transform: rotate(90deg); }
 .activity-item.state-running, .activity-item.state-cancelling { border-color: var(--accent); }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
 .activity-head strong { flex: 1 1 100%; min-width: 0; }
@@ -295,7 +300,7 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .step-done .step-icon { color: var(--ok); }
 .step-failed, .step-stopped { color: var(--bad); }
 .step-detail { color: var(--muted); }
-.activity-files summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.activity-files-heading { margin: 0.5rem 0 0.3rem; font-size: 0.85rem; color: var(--muted); }
 .activity-files ul { list-style: none; margin: 0.3rem 0; padding: 0; display: grid; gap: 0.35rem; font-size: 0.85rem; }
 .activity-files li { display: grid; gap: 0.05rem; }
 .activity-files .outcome { font-weight: 600; }

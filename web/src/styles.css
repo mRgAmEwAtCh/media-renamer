@@ -51,23 +51,52 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   padding-left: max(1.25rem, calc((100% - 1200px) / 2 + 1.25rem));
   padding-right: max(1.25rem, calc((100% - 1200px) / 2 + 1.25rem));
 }
-#app > header h1 { margin: 0; font-size: 1.3rem; display: flex; align-items: center; gap: 0.5rem; }
-#app > header h1 img { flex: none; }
-#app > header nav { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+#app > header h1 { margin: 0; font-size: 1.3rem; line-height: 1; display: flex; align-items: center; gap: 0.6rem; }
+#app > header h1 img { flex: none; display: block; }
+/* View tabs: a segmented control in the same style as the buttons. */
+#app > header nav {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 #app > header nav a {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 999px;
-  color: var(--text);
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.1rem;
+  padding: 0 0.9rem;
+  border-radius: 6px;
+  color: var(--muted);
+  font-weight: 500;
+  line-height: 1;
   text-decoration: none;
-  border: 1px solid transparent;
+  transition: background-color 0.15s, color 0.15s;
 }
-#app > header nav a:hover { border-color: var(--border); }
-#app > header nav a[aria-current='page'] { background: var(--accent); color: #fff; }
-.tab-badge { font-size: 0.72rem; padding: 0 0.45rem; border-radius: 999px; background: var(--warn); color: #fff; white-space: nowrap; }
-@media (prefers-color-scheme: dark) { .tab-badge { color: #111; } }
+#app > header nav a:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+#app > header nav a[aria-current='page'] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  font-weight: 600;
+}
+#app > header nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  padding: 0 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
 .hint { color: var(--muted); margin: 0 0 1rem; }
 
 .panel {
@@ -120,6 +149,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 #status { min-height: 1.4rem; margin: 0 0 1rem; }
 .action-bar #status { margin: 0.4rem 0 0; }
+.action-bar #status:empty { display: none; }
 
 /* Preview / Rename / Undo stay in reach at the bottom of the screen while scrolling the files. */
 .action-bar {
@@ -152,8 +182,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .table-tools label.checkbox { padding-bottom: 0; color: var(--text); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
-.chips button { border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.85rem; }
-.chips button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chips button { padding: 0.3rem 0.75rem; font-size: 0.85rem; color: var(--muted); }
+.chips button:hover { color: var(--text); }
+.chips button[aria-pressed='true'] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
 button.show-more { margin-top: 0.75rem; width: 100%; }
 
 dialog.confirm {
@@ -226,7 +257,6 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .activity-actions { margin-left: auto; display: flex; gap: 0.4rem; align-items: center; }
 .activity-actions button.link { padding: 0.2rem 0.4rem; }
 .activity-item.to-review { border-left: 4px solid var(--warn); }
-.badge-review { color: var(--warn); border-color: var(--warn); }
 .activity-summary { margin: 0.3rem 0; }
 .activity-progress progress { width: 100%; accent-color: var(--accent); }
 .activity-progress p { margin: 0.2rem 0; }
@@ -234,7 +264,7 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 .badge-running, .badge-cancelling { color: var(--accent); border-color: var(--accent); }
 .badge-finished { color: var(--ok); border-color: var(--ok); }
 .badge-failed, .badge-interrupted { color: var(--bad); border-color: var(--bad); }
-.badge-queued { color: var(--warn); border-color: var(--warn); }
+.badge-queued, .badge-review { color: var(--warn); border-color: var(--warn); }
 .steps { list-style: none; margin: 0.3rem 0; padding: 0; font-size: 0.85rem; display: grid; gap: 0.1rem; }
 /* Icon column, so wrapped step text lines up with the label. */
 .step { display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); }
@@ -319,8 +349,8 @@ dialog[aria-busy='true'] .folders { opacity: 0.5; }
 @media (max-width: 700px) {
   #app > header, main, footer.credits { padding-left: 0.75rem; padding-right: 0.75rem; }
   #app > header { gap: 0.4rem; }
-  #app > header nav { width: 100%; }
-  #app > header nav a { flex: 1; justify-content: center; min-height: 40px; }
+  #app > header nav { width: 100%; margin-left: 0; }
+  #app > header nav a { flex: 1; min-height: 40px; padding: 0 0.5rem; }
   .action-bar { margin: 0.75rem -0.9rem -0.9rem; padding: 0.6rem 0.9rem; }
   .action-bar .row button { flex: 1 1 auto; }
   .panel { padding: 0.9rem; }

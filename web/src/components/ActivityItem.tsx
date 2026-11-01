@@ -165,21 +165,7 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
       }}>
         <div className="activity-title-row">
           <h3>
-            {hasDetails ? (
-              <button
-                type="button"
-                className="activity-heading-toggle"
-                aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title(job)}`}
-                aria-expanded={expanded}
-                aria-controls={detailsId}
-                onClick={() => setExpanded((current) => !current)}
-              >
-                <span><Breakable text={title(job)} /></span>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
-            ) : <span className="activity-title"><Breakable text={title(job)} /></span>}
+            <span className="activity-title"><Breakable text={title(job)} /></span>
           </h3>
           {dismissable && (
             <button type="button" className="activity-dismiss" aria-label={`Remove “${title(job)}” from the history`} title="Remove from the history" onClick={onRemove}>
@@ -206,11 +192,32 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
         </span>}
       <p className="activity-summary">{summary(job)}</p>
       </div>
-      <div id={detailsId} hidden={!expanded}>
+      {hasDetails && (
+        <div className="activity-disclosure">
+          <button
+            type="button"
+            className="activity-heading-toggle"
+            aria-label={`${expanded ? 'Hide details' : 'Details'} for ${title(job)}`}
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <span>{expanded ? 'Hide details' : 'Details'}</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+      )}
+      <div id={detailsId} className={`activity-details${expanded && hasDetails ? ' expanded' : ''}`} aria-hidden={!expanded || !hasDetails} inert={!expanded || !hasDetails}>
+        <div className="activity-details-content">
+        <div className="activity-details-body">
         {job.note && job.state !== 'queued' && <p className="hint">{job.note}</p>}
         <Progress job={job} />
         <Steps steps={job.steps} />
         <Files job={job} onOpenFolder={onOpenFolder} />
+        </div>
+        </div>
       </div>
       </div>
     </li>

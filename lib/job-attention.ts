@@ -21,5 +21,6 @@ export function actionNeeded(job: JobSnapshot): Attention | null {
   return parts.length ? { title: `Action needed: ${name}`, body: parts.join(' · '), url: result.review ? `/#/review/${encodeURIComponent(job.id)}` : '/#/activity' } : null;
 }
 
-/** History entries the user may remove one by one: finished, with nothing left to look at. */
-export const canDismiss = (job: JobSnapshot): boolean => job.state === 'finished' && actionNeeded(job) === null;
+/** Removing history never cancels active work or changes its media files. */
+export const canDismiss = (job: JobSnapshot): boolean =>
+  ['finished', 'cancelled', 'failed', 'interrupted'].includes(job.state);

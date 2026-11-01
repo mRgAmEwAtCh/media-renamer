@@ -211,7 +211,7 @@ export function App() {
   const toReview = jobsToReview(activity.jobs, reviewed);
   const running = activity.jobs.filter(isActive).length;
   const activityBadges: Badge[] = [];
-  if (running) activityBadges.push({ count: running, label: `${running} running`, tone: 'accent' });
+  if (running) activityBadges.push({ label: `${running} running`, tone: 'accent' });
   if (toReview.length) activityBadges.push({ count: toReview.length, label: `${toReview.length} to review`, tone: 'warn' });
   const badges: Partial<Record<View, Badge[]>> = {
     activity: activityBadges,

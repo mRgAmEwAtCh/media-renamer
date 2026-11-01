@@ -25,14 +25,16 @@ const REGIONS: [string, string][] = [
   ['FR', 'France'],
 ];
 
-function LanguageField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function LocaleField({ kind, value, onChange }: { kind: 'language' | 'region'; value: string; onChange: (value: string) => void }) {
   const [custom, setCustom] = useState(false);
-  const isCustom = custom || Boolean(value && !LANGUAGES.some(([code]) => code === value));
+  const options = kind === 'language' ? LANGUAGES : REGIONS;
+  const isCustom = custom || Boolean(value && !options.some(([code]) => code === value));
   return (
-    <div className="field language-field">
-      <label htmlFor="language">Language</label>
+    <div className="field locale-field">
+      <label htmlFor={kind}>{kind === 'language' ? 'Language' : 'Region (movies)'}</label>
+      <div className="select-control">
       <select
-        id="language"
+        id={kind}
         value={isCustom ? 'custom' : value}
         onChange={(event) => {
           const next = event.target.value;
@@ -40,18 +42,20 @@ function LanguageField({ value, onChange }: { value: string; onChange: (value: s
           if (next !== 'custom') onChange(next);
         }}
       >
-        <option value="" disabled>Choose a language</option>
-        {LANGUAGES.map(([code, label]) => (
+        <option value="" disabled={kind === 'language'}>{kind === 'language' ? 'Choose a language' : 'No region preference'}</option>
+        {options.map(([code, label]) => (
           <option key={code} value={code}>{`${label} (${code})`}</option>
         ))}
-        <option value="custom">Custom language…</option>
+        <option value="custom">{kind === 'language' ? 'Custom language…' : 'Custom region…'}</option>
       </select>
+      </div>
       {isCustom && (
-        <label className="custom-language">
-          Custom language code
+        <label className="custom-locale">
+          {kind === 'language' ? 'Custom language code' : 'Custom region code'}
           <input
             type="text"
-            placeholder="e.g. da-DK"
+            placeholder={kind === 'language' ? 'e.g. da-DK' : 'e.g. DK'}
+            maxLength={kind === 'region' ? 2 : undefined}
             spellCheck={false}
             autoComplete="off"
             value={value}
@@ -163,29 +167,10 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: N
         />
       </div>
       <div className="grid">
-        <LanguageField value={form.language} onChange={(language) => update({ language })} />
-        <label>
-          Region (movies)
-          <input
-            type="text"
-            list="regions"
-            placeholder="e.g. DE"
-            maxLength={2}
-            spellCheck={false}
-            autoComplete="off"
-            value={form.region}
-            onChange={(event) => update({ region: event.target.value })}
-          />
-        </label>
+        <LocaleField kind="language" value={form.language} onChange={(language) => update({ language })} />
+        <LocaleField kind="region" value={form.region} onChange={(region) => update({ region })} />
       </div>
       <AutomationFields form={form} hookStatus={server.hookStatus} bitrates={bitrates} update={update} />
-      <datalist id="regions">
-        {REGIONS.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </datalist>
       <p className="hint">{server.tmdbStatus}</p>
       <p className="hint">
         Tokens: <code>{'{n}'}</code> name, <code>{'{y}'}</code> year, <code>{'{s}'}</code>/<code>{'{s00}'}</code> season, <code>{'{e}'}</code>/

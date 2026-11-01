@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import type { SettingsForm } from '../settings-form.ts';
 import type { SettingsState } from '../hooks/useSettings.ts';
 import { AutomationFields } from './AutomationFields.tsx';
@@ -24,6 +24,44 @@ const REGIONS: [string, string][] = [
   ['GB', 'United Kingdom'],
   ['FR', 'France'],
 ];
+
+function LanguageField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [custom, setCustom] = useState(false);
+  const isCustom = custom || Boolean(value && !LANGUAGES.some(([code]) => code === value));
+  return (
+    <div className="field language-field">
+      <label htmlFor="language">Language</label>
+      <select
+        id="language"
+        value={isCustom ? 'custom' : value}
+        onChange={(event) => {
+          const next = event.target.value;
+          setCustom(next === 'custom');
+          if (next !== 'custom') onChange(next);
+        }}
+      >
+        <option value="" disabled>Choose a language</option>
+        {LANGUAGES.map(([code, label]) => (
+          <option key={code} value={code}>{`${label} (${code})`}</option>
+        ))}
+        <option value="custom">Custom language…</option>
+      </select>
+      {isCustom && (
+        <label className="custom-language">
+          Custom language code
+          <input
+            type="text"
+            placeholder="e.g. da-DK"
+            spellCheck={false}
+            autoComplete="off"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
 
 interface KindFieldsProps {
   legend: string;
@@ -73,7 +111,7 @@ function KindFields({ legend, patternLabel, pattern, target, targetLabel, placeh
 function DefaultsStatus({ settings }: { settings: SettingsState }) {
   const { dirty, saved } = settings;
   let text = 'Using the server’s defaults. Nothing saved yet.';
-  if (dirty) text = 'Unsaved changes. “Save as default” keeps them for all browsers and the CLI.';
+  if (dirty) text = 'Unsaved changes. “Save” keeps them for all browsers and the CLI.';
   else if (saved.exists) text = `Using your saved defaults${saved.at ? ` (${new Date(saved.at).toLocaleString()})` : ''}.`;
   return (
     <span id="defaultsStatus" className={dirty ? 'hint dirty' : 'hint'} aria-live="polite">
@@ -125,18 +163,7 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: N
         />
       </div>
       <div className="grid">
-        <label>
-          Language
-          <input
-            type="text"
-            list="languages"
-            placeholder="e.g. de-DE"
-            spellCheck={false}
-            autoComplete="off"
-            value={form.language}
-            onChange={(event) => update({ language: event.target.value })}
-          />
-        </label>
+        <LanguageField value={form.language} onChange={(language) => update({ language })} />
         <label>
           Region (movies)
           <input
@@ -152,13 +179,6 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: N
         </label>
       </div>
       <AutomationFields form={form} hookStatus={server.hookStatus} bitrates={bitrates} update={update} />
-      <datalist id="languages">
-        {LANGUAGES.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </datalist>
       <datalist id="regions">
         {REGIONS.map(([value, label]) => (
           <option key={value} value={value}>
@@ -175,7 +195,7 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: N
       </p>
       <div className="row defaults">
         <button type="button" className="primary" disabled={busy || !dirty} onClick={settings.save}>
-          Save as default
+          Save
         </button>
         <button type="button" disabled={busy || !dirty} onClick={settings.revert}>
           Discard changes

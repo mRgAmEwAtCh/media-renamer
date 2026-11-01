@@ -64,7 +64,7 @@ export function formFromSettings(settings: Settings): SettingsForm {
   };
 }
 
-/** The settings as saved by "Save as default". */
+/** The settings as saved by "Save". */
 export function settingsFromForm(form: SettingsForm): SavedSettings {
   return {
     patterns: patternsOf(form),

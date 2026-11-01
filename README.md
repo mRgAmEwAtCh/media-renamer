@@ -86,7 +86,7 @@ The server warns at startup when it listens on the network without a password, a
 
 ### Saved settings
 
-The web UI's **Save as default** stores the naming patterns, the TV and movie destinations, the move switch, language, region, filters and the automatic-import options in `settings.json` in `MEDIA_RENAMER_CONFIG_DIR`. These are used by the web UI on every device, by automatic imports and by the CLI. **Reset to server defaults** deletes the file.
+The web UI's **Save** stores the naming patterns, the TV and movie destinations, the move switch, language, region, filters and the automatic-import options in `settings.json` in `MEDIA_RENAMER_CONFIG_DIR`. These are used by the web UI on every device, by automatic imports and by the CLI. **Reset to server defaults** deletes the file.
 
 Precedence, lowest to highest: built-in defaults → environment variables → saved settings → per-run choices (web UI fields before previewing, CLI flags). `media-renamer settings` prints the result. In Docker, `./config` is mounted at `/config`; create it before the first start (`mkdir -p config`) so it belongs to `PUID`, otherwise saving fails with a clear error.
 
@@ -161,7 +161,7 @@ Many TVs, soundbars and apps cannot play DTS. When the audio fix is on, every im
 - 7.1 sources are downmixed to 5.1 for the new track, because ffmpeg's E-AC-3 encoder supports at most 5.1.
 - Dolby Atmos cannot be created with open-source tools; existing Atmos tracks (TrueHD or E-AC-3) are kept as they are.
 
-The options are in the web UI under **Automatic import** (saved with **Save as default**), or set by the `MEDIA_RENAMER_AUDIO_*` variables.
+The options are in the web UI under **Automatic import** (saved with **Save**), or set by the `MEDIA_RENAMER_AUDIO_*` variables.
 
 ## Web app
 
@@ -180,10 +180,12 @@ The page has three views, linked in the header and in the address bar (`#/rename
 - Cards with no steps, files, notes or live progress have no chevron or expand/collapse interaction.
 - **Settings**: naming patterns, destinations, language, filters and automatic import.
 
-Settings changed but not saved are marked with a yellow dot on the tab. Leaving Settings, or previewing with changed naming or destination settings, asks to **Save as default**, **Discard changes** or **Keep editing**, so previews never silently differ from what imports use.
+Language uses a native dropdown (including the phone's system picker). Choose **Custom language…** to enter a locale code not in the list; existing custom codes are preserved.
+
+Settings changed but not saved are marked with a yellow dot on the tab. Leaving Settings, or previewing with changed naming or destination settings, asks to **Save**, **Discard changes** or **Keep editing**, so previews never silently differ from what imports use.
 
 1. Click **Browse…** to choose the folder to rename, or type a path and click **Scan & preview** (or press Enter). Choosing a folder scans and previews automatically. Changing the folder filters takes effect on the next scan, without replacing the current edits.
-2. In **Settings**, under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save as default** keeps these settings for next time.
+2. In **Settings**, under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save** keeps these settings for next time.
 3. Review the proposed names. Each file shows which library it goes to. Matched files are selected automatically; warnings must be selected by hand. You can edit any new name before applying. **Preview again** refreshes the names without scanning again; replacing edited names, selections or conflict decisions asks for confirmation. If metadata lookup fails, the scanned files remain available with **Retry preview**. Scanning and metadata lookup show separate progress messages, including skipped-file counts and truncated-list warnings.
    If a new name is taken, by a file already in the library or by another file in the list, the row shows the sizes of both files and offers **Keep both** (the new file gets “(2)” added), **Overwrite** (replaces the existing file) or **Skip**, which can also delete the extracted file, e.g. a lower-quality copy. Replaced and deleted files cannot be restored with **Undo last batch**.
    **Only files that need attention** hides the rows that are fine; **Keep both for all N conflicts** and **Skip all conflicts** settle every conflict at once.

@@ -85,7 +85,7 @@ export function useSettings(setStatus: SetStatus, onLoaded: () => void) {
         const legacy = response.saved ? null : legacyChanges();
         if (legacy) {
           setForm({ ...next, ...legacy });
-          setStatus('Loaded the settings this browser remembered. Click “Save as default” to keep them on the server.');
+          setStatus('Loaded the settings this browser remembered. Click “Save” to keep them on the server.');
         }
         onLoaded();
       } catch (error) {

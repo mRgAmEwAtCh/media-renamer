@@ -38,7 +38,7 @@ function UnsavedDialog({ ask, busy, onChoose }: { ask: Ask; busy: boolean; onCho
       <p className="hint">Saved settings are used by this page, by imports from the downloader and by the CLI.</p>
       <div className="row dialog-actions">
         <button type="button" className="primary" disabled={busy} onClick={() => onChoose('save')} autoFocus>
-          Save as default
+          Save
         </button>
         <button type="button" disabled={busy} onClick={() => onChoose('discard')}>
           Discard changes

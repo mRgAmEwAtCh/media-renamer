@@ -33,7 +33,10 @@ export function useSwipeAway(onDismiss: () => void, enabled: boolean) {
   const handlers = {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       suppressClick.current = false;
-      if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) return;
+      if (event.target instanceof Element) {
+        const control = event.target.closest('button, a, input, textarea, select');
+        if (control && !control.classList.contains('activity-heading-toggle')) return;
+      }
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       gesture.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, horizontal: null };
     },

@@ -42,13 +42,15 @@ export function AutomationFields({ form, hookStatus, bitrates, update }: Automat
         </label>
         <label>
           Bitrate of the added track
-          <select value={form.audioBitrate} onChange={(event) => update({ audioBitrate: event.target.value })}>
-            {bitrates.map((bitrate) => (
-              <option key={bitrate} value={bitrate}>
-                {/^\d+k$/.test(bitrate) ? `${bitrate.slice(0, -1)} kbit/s` : bitrate}
-              </option>
-            ))}
-          </select>
+          <span className="select-control">
+            <select value={form.audioBitrate} onChange={(event) => update({ audioBitrate: event.target.value })}>
+              {bitrates.map((bitrate) => (
+                <option key={bitrate} value={bitrate}>
+                  {/^\d+k$/.test(bitrate) ? `${bitrate.slice(0, -1)} kbit/s` : bitrate}
+                </option>
+              ))}
+            </select>
+          </span>
         </label>
       </div>
       <p className="hint">The original DTS track is always kept. Atmos cannot be created with open-source tools, so the new track is 5.1.</p>

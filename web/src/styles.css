@@ -32,10 +32,43 @@
 body { margin: 0; background: var(--bg); color: var(--text); }
 
 #app > header, main { max-width: 1200px; margin: 0 auto; padding: 0 1.25rem; }
-#app > header { padding-top: 1.5rem; }
-#app > header h1 { margin: 0 0 0.25rem; font-size: 1.6rem; display: flex; align-items: center; gap: 0.6rem; }
+/* The header with the view tabs stays at the top while scrolling. */
+#app > header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  max-width: none;
+  padding-left: max(1.25rem, calc((100% - 1200px) / 2 + 1.25rem));
+  padding-right: max(1.25rem, calc((100% - 1200px) / 2 + 1.25rem));
+}
+#app > header h1 { margin: 0; font-size: 1.3rem; display: flex; align-items: center; gap: 0.5rem; }
 #app > header h1 img { flex: none; }
-#app > header p, .hint { color: var(--muted); margin: 0 0 1rem; }
+#app > header nav { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+#app > header nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+#app > header nav a:hover { border-color: var(--border); }
+#app > header nav a[aria-current='page'] { background: var(--accent); color: #fff; }
+.tab-badge { font-size: 0.72rem; padding: 0 0.45rem; border-radius: 999px; background: var(--warn); color: #fff; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .tab-badge { color: #111; } }
+.hint { color: var(--muted); margin: 0 0 1rem; }
 
 .panel {
   background:
@@ -86,6 +119,56 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 #status { min-height: 1.4rem; margin: 0 0 1rem; }
+.action-bar #status { margin: 0.4rem 0 0; }
+
+/* Preview / Rename / Undo stay in reach at the bottom of the screen while scrolling the files. */
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 0.75rem -1.25rem -1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 -6px 12px -10px rgb(0 0 0 / 0.35);
+}
+.row.defaults { position: sticky; bottom: 0; background: var(--panel); padding: 0.6rem 0; margin-bottom: 0; border-top: 1px solid var(--border); }
+
+.settings-summary { margin: 0.25rem 0 0; }
+.settings-summary .dirty { color: var(--warn); font-weight: 600; }
+.settings-summary button.link { padding: 0; }
+
+.inbox ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.inbox li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: 8px; min-width: 0; }
+.inbox li[aria-current] { border-left-color: var(--accent); }
+.inbox-text { display: grid; min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
+.inbox-text .hint { margin: 0; font-size: 0.85rem; }
+.inbox .row { align-items: center; }
+
+.review-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); overflow-wrap: anywhere; }
+.review-banner .row { align-items: center; }
+.table-tools { align-items: center; margin-bottom: 0.5rem; }
+.table-tools label.checkbox { padding-bottom: 0; color: var(--text); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+.chips button { border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.85rem; }
+.chips button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.show-more { margin-top: 0.75rem; width: 100%; }
+
+dialog.confirm {
+  width: min(480px, calc(100vw - 2rem));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 1.25rem;
+}
+dialog.confirm::backdrop { background: rgb(0 0 0 / 0.45); }
+dialog.confirm h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+dialog.confirm p { margin: 0 0 0.5rem; }
+dialog.confirm .changes { margin: 0 0 0.75rem; padding-left: 1.2rem; }
+.dialog-actions { justify-content: flex-end; }
 #status.error { color: var(--bad); }
 #status.success { color: var(--ok); }
 
@@ -130,25 +213,20 @@ select { font: inherit; color: var(--text); background: var(--bg); border: 1px s
 
 /* minmax(0, …) and min-width: 0 let cards shrink to the screen instead of growing to fit long release names. */
 .activity { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
-.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%), var(--panel); position: relative; }
-/* Swipe a finished card sideways to remove it; the red hint shows underneath while swiping. */
 .activity-row { position: relative; min-width: 0; border-radius: 8px; }
 .activity-remove-hint { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; border-radius: 8px; background: var(--bad); color: #fff; font-weight: 600; }
 .activity-row.dismissable .activity-item { touch-action: pan-y; transition: transform 0.18s ease; }
 .activity-item.dragging { user-select: none; cursor: grabbing; }
-.snackbar {
-  position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10;
-  display: flex; align-items: center; gap: 1rem; max-width: calc(100vw - 2rem); overflow-wrap: anywhere;
-  padding: 0.6rem 1rem; border-radius: 8px; background: var(--text); color: var(--bg); box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
-}
+.snackbar { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 1rem; max-width: calc(100vw - 2rem); overflow-wrap: anywhere; padding: 0.6rem 1rem; border-radius: 8px; background: var(--text); color: var(--bg); box-shadow: 0 4px 16px rgb(0 0 0 / 30%); }
 .snackbar button.link { color: inherit; font-weight: 700; text-decoration: underline; min-height: 0; flex: none; }
+.activity-item { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%); }
 .activity-item.state-running, .activity-item.state-cancelling { border-color: var(--accent); }
 .activity-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; }
 .activity-head strong { flex: 1 1 100%; min-width: 0; }
-/* With a ✕, the title leaves room for it on the same line. */
-.activity-head strong:has(+ .dismiss) { flex-basis: calc(100% - 3.5rem); }
-.activity-head button.dismiss { margin-left: auto; align-self: flex-start; }
-.activity-head button { margin-left: auto; }
+.activity-actions { margin-left: auto; display: flex; gap: 0.4rem; align-items: center; }
+.activity-actions button.link { padding: 0.2rem 0.4rem; }
+.activity-item.to-review { border-left: 4px solid var(--warn); }
+.badge-review { color: var(--warn); border-color: var(--warn); }
 .activity-summary { margin: 0.3rem 0; }
 .activity-progress progress { width: 100%; accent-color: var(--accent); }
 .activity-progress p { margin: 0.2rem 0; }
@@ -240,6 +318,11 @@ dialog[aria-busy='true'] .folders { opacity: 0.5; }
 /* Phones: the file table becomes one card per file, and controls get finger-sized. */
 @media (max-width: 700px) {
   #app > header, main, footer.credits { padding-left: 0.75rem; padding-right: 0.75rem; }
+  #app > header { gap: 0.4rem; }
+  #app > header nav { width: 100%; }
+  #app > header nav a { flex: 1; justify-content: center; min-height: 40px; }
+  .action-bar { margin: 0.75rem -0.9rem -0.9rem; padding: 0.6rem 0.9rem; }
+  .action-bar .row button { flex: 1 1 auto; }
   .panel { padding: 0.9rem; }
 
   input[type='text'], input[type='password'], textarea, select { font-size: 16px; }

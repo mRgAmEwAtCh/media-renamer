@@ -52,7 +52,7 @@ export function createServer(
   jobs.resume ??= resume;
   jobs.onFinish ??= async (job) => {
     const message = actionNeeded(job);
-    if (message) await push.notify({ ...message, url: '/' });
+    if (message) await push.notify(message);
   };
 
   async function login(request: IncomingMessage, response: ServerResponse): Promise<void> {

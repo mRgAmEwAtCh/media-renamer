@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import type { ImportResult, JobSnapshot, Step } from '../../../lib/types.ts';
 import { formatBytes, formatDay, formatTime } from '../format.ts';
-import { canDismiss } from '../../../lib/job-attention.ts';
 import { isActive } from '../hooks/useActivity.ts';
+import { canDismiss } from '../../../lib/job-attention.ts';
 import { useSwipeAway } from '../hooks/useSwipeAway.ts';
 import { Breakable } from './Breakable.tsx';
 
@@ -123,51 +124,65 @@ function Files({ job, onOpenFolder }: { job: JobSnapshot; onOpenFolder: (folder:
 
 interface ActivityItemProps {
   job: JobSnapshot;
+  /** Number of files still to review here (0 once dealt with). */
+  toReview: number;
   onCancel: () => void;
   onRemove: () => void;
   onOpenFolder: (folder: string) => void;
+  onReview: () => void;
 }
 
 /**
- * One job in the Activity list: state, summary, progress, steps and per-file
- * results. A job that finished with nothing left to look at can be swiped away
- * (or removed with ✕).
+ * One job in the Activity list. Running jobs show everything; finished ones
+ * show one line with their outcome until expanded.
  */
-export function ActivityItem({ job, onCancel, onRemove, onOpenFolder }: ActivityItemProps) {
+export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, onReview }: ActivityItemProps) {
+  const active = isActive(job);
+  const [open, setOpen] = useState(false);
+  const expanded = active || open;
   const source = job.source === 'hook' ? 'via hook' : (job.source ?? '');
+  const detailsId = `job-${job.id}`;
   const dismissable = canDismiss(job);
   const swipe = useSwipeAway(onRemove, dismissable);
   return (
     <li className={`activity-row${dismissable ? ' dismissable' : ''}`}>
-      {dismissable && (
-        <div className="activity-remove-hint" aria-hidden="true">
-          <span>Remove</span>
-          <span>Remove</span>
-        </div>
-      )}
-      <div className={`activity-item state-${job.state}${swipe.dragging ? ' dragging' : ''}`} style={swipe.style} {...swipe.handlers}>
-        <div className="activity-head">
-          <strong>
-            <Breakable text={title(job)} />
-          </strong>
-          {dismissable && (
-            <button type="button" className="icon dismiss" aria-label={`Remove “${title(job)}” from the history`} title="Remove from the history" onClick={onRemove}>
-              ✕
+      {dismissable && <div className="activity-remove-hint" aria-hidden="true"><span>Remove</span><span>Remove</span></div>}
+      <div className={`activity-item state-${job.state}${toReview ? ' to-review' : ''}${swipe.dragging ? ' dragging' : ''}`} style={swipe.style} {...swipe.handlers}>
+      <div className="activity-head">
+        <strong>
+          <Breakable text={title(job)} />
+        </strong>
+        <span className={`badge badge-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
+        {toReview > 0 && <span className="badge badge-review">{`${toReview} to review`}</span>}
+        <span className="hint">{`${source} · ${formatDay(job.queuedAt)} ${formatTime(job.startedAt ?? job.queuedAt)}`}</span>
+        <span className="activity-actions">
+          {dismissable && <button type="button" className="icon dismiss" aria-label={`Remove “${title(job)}” from the history`} title="Remove from the history" onClick={onRemove}>✕</button>}
+          {toReview > 0 && (
+            <button type="button" className="primary" onClick={onReview}>
+              Resolve
             </button>
           )}
-          <span className={`badge badge-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
-          <span className="hint">{`${source} · ${formatDay(job.queuedAt)} ${formatTime(job.startedAt ?? job.queuedAt)}`}</span>
-          {isActive(job) && job.state !== 'cancelling' && (
+          {active && job.state !== 'cancelling' && (
             <button type="button" onClick={onCancel}>
               {job.state === 'queued' ? 'Remove' : 'Cancel'}
             </button>
           )}
+          {!active && (
+            <button type="button" className="link" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(!open)}>
+              {open ? 'Hide details' : 'Details'}
+            </button>
+          )}
+        </span>
+      </div>
+      <p className="activity-summary">{summary(job)}</p>
+      {expanded && (
+        <div id={detailsId}>
+          {job.note && job.state !== 'queued' && <p className="hint">{job.note}</p>}
+          <Progress job={job} />
+          <Steps steps={job.steps} />
+          <Files job={job} onOpenFolder={onOpenFolder} />
         </div>
-        <p className="activity-summary">{summary(job)}</p>
-        {job.note && job.state !== 'queued' && <p className="hint">{job.note}</p>}
-        <Progress job={job} />
-        <Steps steps={job.steps} />
-        <Files job={job} onOpenFolder={onOpenFolder} />
+      )}
       </div>
     </li>
   );

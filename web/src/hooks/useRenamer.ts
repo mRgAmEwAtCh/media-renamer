@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScanResponse } from '../../../lib/api-types.ts';
-import type { JobSnapshot, Targets } from '../../../lib/types.ts';
+import type { JobSnapshot, PreviewItem, Targets } from '../../../lib/types.ts';
 import { api, errorMessage, sleep } from '../api.ts';
 import { resolveConflict } from '../conflicts.ts';
 import { itemsFromPreview, itemsFromScan, selectedItems, type Item } from '../items.ts';
 import { reportJob } from '../job-report.ts';
 import { readLocal, saveLocal } from '../local.ts';
+import { allDecided, openConflicts, reviewFiles } from '../review.ts';
 import { formFilters, previewOptions, requestedTargets, type SettingsForm } from '../settings-form.ts';
 import { ACTIVE_STATES } from './useActivity.ts';
 import type { SetStatus } from './useStatus.ts';
+
+/** The files of an import that need a decision, shown instead of a scanned folder. */
+export interface Review {
+  jobId: string;
+  label: string;
+  files: string[];
+}
 
 interface ScanState {
   /** The scanned folder, as the server resolved it; '' before the first scan. */
@@ -20,7 +28,19 @@ interface ScanState {
   previewTargets: Targets | null;
   /** Changes with every scan and preview. */
   version: number;
+  review: Review | null;
 }
+
+/** What to do after a rename started while reviewing an import. */
+interface AfterReview {
+  review: Review;
+  /** Every row got a decision, so the import is done once the rename succeeds. */
+  decided: boolean;
+  /** Files of the review that the rename leaves where they are. */
+  remaining: string[];
+}
+
+const isMissing = (item: PreviewItem) => item.status === 'error' && item.message === 'File not found';
 
 function describeExcluded(excluded: ScanResponse['excluded']): string {
   const parts = [];
@@ -33,22 +53,31 @@ function describeExcluded(excluded: ScanResponse['excluded']): string {
  * The rename workflow: scan a folder, preview new names, then rename (and
  * undo) as a job on the server, following its progress until it ends.
  */
-export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm; setStatus: SetStatus; onJobDone: () => void }) {
+interface RenamerOptions {
+  form: SettingsForm;
+  setStatus: SetStatus;
+  onJobDone: () => void;
+  /** An import's files to review were all dealt with. */
+  onReviewed: (jobId: string) => void;
+}
+
+export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOptions) {
   const [root, setRoot] = useState(() => readLocal().root ?? '');
   const [recursive, setRecursive] = useState(() => readLocal().recursive ?? true);
-  const [scan, setScan] = useState<ScanState>({ root: '', items: null, previewed: false, previewTargets: null, version: 0 });
+  const [scan, setScan] = useState<ScanState>({ root: '', items: null, previewed: false, previewTargets: null, version: 0, review: null });
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<JobSnapshot | null>(null);
   const [connectionProblem, setConnectionProblem] = useState<string | null>(null);
 
   // Async work reads the latest values from here, not from the render it started in.
-  const live = useRef({ root, recursive, scan, busy, form, onJobDone });
+  const live = useRef({ root, recursive, scan, busy, form, onJobDone, onReviewed });
   useEffect(() => {
-    live.current = { root, recursive, scan, busy, form, onJobDone };
+    live.current = { root, recursive, scan, busy, form, onJobDone, onReviewed };
   });
+  const afterReview = useRef<AfterReview | null>(null);
 
   const showScan = (data: ScanResponse) =>
-    setScan((current) => ({ root: data.root, items: itemsFromScan(data.files), previewed: false, previewTargets: null, version: current.version + 1 }));
+    setScan((current) => ({ root: data.root, items: itemsFromScan(data.files), previewed: false, previewTargets: null, version: current.version + 1, review: null }));
 
   /** Run a task with the buttons disabled; its error goes to the status line. */
   const run = async (message: string, task: () => Promise<void>) => {
@@ -77,26 +106,90 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
     showScan(await api('/api/scan', { root: current.root, recursive: subfolders, ...formFilters(latestForm) }));
   };
 
-  async function preview() {
-    const targets = requestedTargets(form);
-    if (form.move && !targets.episode && !targets.movie) {
-      setStatus('Choose a destination for TV shows and/or movies, or untick “Move renamed files”.', 'error');
-      return;
+  /** Look up names for `files` in `folder`; with `review`, the rows are an import's files to review. */
+  async function runPreview({ folder, files, settings, review, prefix = '' }: { folder: string; files: string[]; settings: SettingsForm; review: Review | null; prefix?: string }) {
+    const targets = requestedTargets(settings);
+    if (settings.move && !targets.episode && !targets.movie) {
+      setStatus('Choose a destination for TV shows and/or movies in Settings, or untick “Move renamed files”.', 'error');
+      return false;
     }
+    let ok = false;
     await run('Looking up metadata…', async () => {
-      const files = (scan.items ?? []).map((item) => item.rel);
-      const data = await api('/api/preview', { root: scan.root, targets, files, ...previewOptions(form) });
-      const items = itemsFromPreview(data.items);
-      setScan((current) => ({ ...current, previewTargets: targets, previewed: true, items, version: current.version + 1 }));
+      const data = await api('/api/preview', { root: folder, targets, files, ...previewOptions(settings) });
+      // Files of an import that were renamed or deleted since (maybe on another device) are done.
+      const found = review ? data.items.filter((item) => !isMissing(item)) : data.items;
+      if (review && !found.length) {
+        live.current.onReviewed(review.jobId);
+        setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
+        setStatus(`${prefix}Nothing left to review from “${review.label}”: its files were already moved.`, 'success');
+        ok = true;
+        return;
+      }
+      if (review) review = { ...review, files: found.map((item) => item.rel) };
+      const items = itemsFromPreview(found);
+      setScan((current) => ({ root: data.root, items, previewed: true, previewTargets: targets, review, version: current.version + 1 }));
       const ready = items.filter((item) => item.selected);
       const moving = (['episode', 'movie'] as const)
         .map((kind) => [kind, ready.filter((item) => item.kind === kind && item.target).length] as const)
         .filter(([, count]) => count)
         .map(([kind, count]) => `${count} to ${data.targets[kind]}`);
-      const conflicts = items.filter((item) => item.conflict).length;
+      const conflicts = openConflicts(items).length;
       const decide = conflicts ? ` ${conflicts} conflict(s): choose Keep both, Overwrite or Skip.` : '';
-      setStatus(`${ready.length} file(s) ready${moving.length ? ` (moving ${moving.join(', ')})` : ''}. Review warnings before selecting them.${decide}`);
+      setStatus(`${prefix}${ready.length} file(s) ready${moving.length ? ` (moving ${moving.join(', ')})` : ''}. Review warnings before selecting them.${decide}`);
+      ok = true;
     });
+    return ok;
+  }
+
+  /** Preview the shown rows; `settings` replaces the form when it was just saved or reverted. */
+  async function preview(settings: SettingsForm = live.current.form) {
+    const { scan: current } = live.current;
+    await runPreview({ folder: current.root, files: (current.items ?? []).map((item) => item.rel), settings, review: current.review });
+  }
+
+  /** Show the files of an import that need review, already previewed. */
+  async function reviewJob(job: JobSnapshot, settings: SettingsForm = live.current.form): Promise<boolean> {
+    const files = reviewFiles(job);
+    if (!files.length) {
+      setStatus('Nothing in this job needs review any more.');
+      return false;
+    }
+    setRoot(job.root);
+    saveLocal(job.root, live.current.recursive);
+    const label = job.label ?? job.params?.path ?? 'Import';
+    return runPreview({ folder: job.root, files, settings, review: { jobId: job.id, label, files } });
+  }
+
+  /** Leave review mode; `done` also marks the import as dealt with. */
+  function closeReview(done: boolean) {
+    const { review } = live.current.scan;
+    if (!review) return;
+    if (done) live.current.onReviewed(review.jobId);
+    setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
+    setStatus(done ? `Marked “${review.label}” as reviewed.` : '');
+  }
+
+  /** After a rename or undo: show what is left to review, or the folder again. */
+  async function refreshAfterJob(finished: JobSnapshot, report: string) {
+    const pending = afterReview.current;
+    afterReview.current = null;
+    const { review } = live.current.scan;
+    if (pending && review?.jobId === pending.review.jobId && finished.state === 'finished') {
+      if (pending.decided || !pending.remaining.length) {
+        live.current.onReviewed(review.jobId);
+        setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
+        setStatus(`${report} Review of “${review.label}” done.`, 'success');
+        return;
+      }
+      const left = { ...review, files: pending.remaining };
+      await runPreview({ folder: live.current.scan.root, files: left.files, settings: live.current.form, review: left, prefix: `${report} ` });
+      return;
+    }
+    if (review && finished.kind === 'apply') {
+      await runPreview({ folder: live.current.scan.root, files: review.files, settings: live.current.form, review, prefix: `${report} ` });
+      return;
+    }
+    if (live.current.scan.root) await rescan().catch(() => {});
   }
 
   /** Show a server-side job until it ends; survives page reloads and brief disconnects. */
@@ -122,12 +215,13 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
       }
       setJob(null);
       setBusy(false);
-      if (current.result || current.state === 'failed') setStatus(...reportJob(current));
-      else setStatus('The server restarted during the job. Completed moves are in the undo log.', 'error');
-      if (live.current.scan.root) await rescan().catch(() => {});
+      const [report, kind] = current.result || current.state === 'failed' ? reportJob(current) : (['The server restarted during the job. Completed moves are in the undo log.', 'error'] as const);
+      setStatus(report, kind);
+      if (kind === 'error') afterReview.current = null;
+      await refreshAfterJob(current, report);
       live.current.onJobDone();
     },
-    // rescan reads everything it needs from `live`.
+    // refreshAfterJob reads everything it needs from `live`.
     [setStatus],
   );
 
@@ -160,6 +254,10 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
     ].filter(Boolean);
     const warning = replacing || remove.length ? '\n\nReplaced and deleted files cannot be restored with “Undo last batch”.' : '';
     if (!parts.length || !confirm(`${parts.join('; ')}?${warning}`)) return;
+    if (scan.review) {
+      const handled = new Set([...renames.map((rename) => rename.from), ...remove]);
+      afterReview.current = { review: scan.review, decided: allDecided(scan.items ?? []), remaining: scan.review.files.filter((rel) => !handled.has(rel)) };
+    }
     await startJob(() => api('/api/apply', { root: scan.root, renames, ...(remove.length && { remove }) }));
   }
 
@@ -180,6 +278,25 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
     } catch (error) {
       setStatus(errorMessage(error), 'error');
     }
+  }
+
+  /** "Keep both" for every open conflict, one after the other, so each gets its own free name. */
+  async function keepBothAll() {
+    const { version, root: folder } = live.current.scan;
+    let items = live.current.scan.items ?? [];
+    await run('Finding free names…', async () => {
+      for (;;) {
+        const index = items.findIndex((item) => item.status === 'conflict' && !item.resolution);
+        if (index < 0) break;
+        const item = items[index];
+        const wanted = item.originalNewRel ?? item.newRel!;
+        const taken = items.filter((other) => other !== item && other.newRel && (other.target ?? null) === (item.target ?? null)).map((other) => other.newRel!);
+        const { newRel } = await api('/api/free-name', { root: folder, target: item.target, rel: wanted, taken });
+        items = resolveConflict(items, index, 'keep-both', newRel);
+      }
+      setScan((current) => (current.version === version ? { ...current, items } : current));
+      setStatus('Every conflicting file keeps its own name now. Check the names, then rename.');
+    });
   }
 
   async function undo() {
@@ -206,7 +323,7 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
     api('/api/job', {})
       .then(({ job: running }) => {
         if (!running || running.source !== 'web UI' || !ACTIVE_STATES.has(running.state)) return;
-        setScan((current) => ({ ...current, root: running.root }));
+        setScan((current) => ({ ...current, root: running.root, review: null }));
         return follow(running);
       })
       .catch(() => {});
@@ -234,10 +351,13 @@ export function useRenamer({ form, setStatus, onJobDone }: { form: SettingsForm;
     scanFolder,
     /** Rescan the shown folder unless a scan or job is running (e.g. after an import moved files). */
     rescanIfIdle: () => {
-      if (live.current.scan.root && !live.current.busy) rescan().catch(() => {});
+      if (live.current.scan.root && !live.current.scan.review && !live.current.busy) rescan().catch(() => {});
     },
     preview,
+    reviewJob,
+    closeReview,
     keepBoth,
+    keepBothAll,
     apply,
     undo,
     cancelJob,

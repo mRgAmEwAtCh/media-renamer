@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react';
+import type { RefObject } from 'react';
 import type { SettingsForm } from '../settings-form.ts';
 import type { SettingsState } from '../hooks/useSettings.ts';
 import { AutomationFields } from './AutomationFields.tsx';
@@ -87,17 +87,15 @@ interface NamingPanelProps {
   busy: boolean;
   browseButtons: { tv: RefObject<HTMLButtonElement | null>; movie: RefObject<HTMLButtonElement | null> };
   onBrowseTarget: (kind: 'tv' | 'movie') => void;
-  /** The Preview / Rename / Undo buttons. */
-  children: ReactNode;
 }
 
-/** Step 2: naming patterns, destinations, metadata language and automatic import. */
-export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget, children }: NamingPanelProps) {
+/** The Settings view: naming patterns, destinations, metadata language and automatic import. */
+export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget }: NamingPanelProps) {
   const { form, update, dirty, saved, server, bitrates } = settings;
   const shared = { settings, busy };
   return (
     <section className="panel" aria-labelledby="naming-heading">
-      <h2 id="naming-heading">2. Naming &amp; destinations</h2>
+      <h2 id="naming-heading">Naming &amp; destinations</h2>
       <label className="checkbox move-toggle">
         <input type="checkbox" checked={form.move} onChange={(event) => update({ move: event.target.checked })} /> Move renamed files into my
         library folders
@@ -176,15 +174,17 @@ export function NamingPanel({ settings, busy, browseButtons, onBrowseTarget, chi
         start at the destination; files renamed in place keep their subfolder.
       </p>
       <div className="row defaults">
-        <button type="button" disabled={busy || !dirty} onClick={settings.save}>
+        <button type="button" className="primary" disabled={busy || !dirty} onClick={settings.save}>
           Save as default
+        </button>
+        <button type="button" disabled={busy || !dirty} onClick={settings.revert}>
+          Discard changes
         </button>
         <button type="button" disabled={busy || !saved.exists} onClick={settings.reset}>
           Reset to server defaults
         </button>
         <DefaultsStatus settings={settings} />
       </div>
-      <div className="row">{children}</div>
     </section>
   );
 }

@@ -132,21 +132,21 @@ callAsync(function () {}, 'curl', '-fsS', '-X', 'POST', '-H', 'Authorization: Be
   '--data-urlencode', 'ARCHIVE_PATH=' + path, 'http://127.0.0.1:4173/api/hooks/extracted');
 ```
 
-Each import runs these steps, all shown live in the web UI's **Activity** panel:
+Each import runs these steps, all shown live in the web UI's **Activity** view:
 
 1. **Wait** until the files stop changing (`MEDIA_RENAMER_STABLE_SECONDS`).
 2. **Scan** with the saved filters (video only, skip samples).
 3. **Look up metadata** with the saved patterns, language and TV/movie destinations.
-4. **Decide.** Only confident matches (status `ok`) are imported. Everything else stays where it is and is listed as *Needs review*, with a button that opens the folder in the renamer.
+4. **Decide.** Only confident matches (status `ok`) are imported. Everything else stays where it is and is listed as *Needs review*. **Resolve** opens just those files, already previewed, in the Rename view (see [Reviewing imports](#reviewing-imports)).
 5. **Check audio** (optional, `.mkv` only).
 6. **Convert and move** with the normal engine: journalled, undoable, with progress and **Cancel**.
 7. **Clean up** extraction folders left empty (optional).
 
-Imports run one at a time, after any rename already running. A second call for a folder that is already waiting joins that job. The queue and the history (the last 50 finished jobs) are saved in `jobs.json` in the config folder, so the Activity panel survives restarts: an import waiting or running when the server stops runs again after the restart. **Clear history** in the Activity panel removes the finished jobs; waiting and running jobs stay, and undo is not affected. A job that finished with nothing left to do (no failures, no files waiting for review) can also be removed on its own: swipe it sideways on a phone, or click its **✕**; **Undo** brings it back for a few seconds. Imports can be undone with **Undo last batch** on the allowed folder that contains them (e.g. `/media/Downloads`).
+Imports run one at a time, after any rename already running. A second call for a folder that is already waiting joins that job. The queue and the history (the last 50 finished jobs) are saved in `jobs.json` in the config folder, so the Activity view survives restarts: an import waiting or running when the server stops runs again after the restart. **Clear history** in the Activity view removes the finished jobs; waiting and running jobs stay, and undo is not affected. Imports can be undone with **Undo last batch** on the allowed folder that contains them (e.g. `/media/Downloads`).
 
 ### Notifications
 
-Click **🔕 Notify me** in the Activity panel and allow notifications to get a push notification on that device when an import has files that need review or a job fails, even when the page is closed. Click it again to stop. Each browser or phone subscribes separately.
+Click **🔕 Notify me** in the Activity view and allow notifications to get a push notification on that device when an import has files that need review or a job fails, even when the page is closed. Tapping a *needs review* notification opens that import's files ready to resolve; a failure opens the Activity view. Click it again to stop. Each browser or phone subscribes separately.
 
 - Browsers allow this only over HTTPS (for example behind a reverse proxy) or on `localhost`; on plain `http://<nas>:4173` the button is not shown.
 - On iPhone/iPad (iOS 16.4+), first add the app to the home screen and open it from there.
@@ -173,11 +173,24 @@ open http://127.0.0.1:4173/
 
 While working on the web UI, run `npm start` and `npm run dev` side by side and open the address Vite prints: it reloads on every change and forwards API calls to the server on port 4173. Restart `npm start` after a new `npm run build`, since the server indexes the build once.
 
+The page has three views, linked in the header and in the address bar (`#/rename`, `#/activity`, `#/settings`), so Back works and links can be bookmarked:
+
+- **Rename**: the *Needs review* inbox, the folder, and the file table with a sticky action bar. A line under the folder shows where files go, with a link to Settings.
+- **Activity**: running and finished jobs. Finished jobs are collapsed (**Details** shows the steps and files); filter by **Needs review** or **Failed**, 10 at a time with **Show more**. The tab shows how many jobs are running or need review.
+- **Settings**: naming patterns, destinations, language, filters and automatic import.
+
+Settings changed but not saved are marked *unsaved* on the tab. Leaving Settings, or previewing with changed naming or destination settings, asks to **Save as default**, **Discard changes** or **Keep editing**, so previews never silently differ from what imports use.
+
 1. Click **Browse…** to choose the folder to rename, or type a path. Choosing a folder starts the scan.
-2. Under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save as default** keeps these settings for next time.
+2. In **Settings**, under **Naming & destinations**, set the episode and movie patterns. To move files into your libraries, tick **Move renamed files into my library folders** and choose a destination for TV shows and one for movies, each with its own **Browse…** button. Leave one empty to rename that kind in place. **Save as default** keeps these settings for next time.
 3. Click **Preview names**. Each file shows which library it goes to. Matched files are selected automatically; warnings must be selected by hand. You can edit any new name before applying.
    If a new name is taken, by a file already in the library or by another file in the list, the row shows the sizes of both files and offers **Keep both** (the new file gets “(2)” added), **Overwrite** (replaces the existing file) or **Skip**, which can also delete the extracted file, e.g. a lower-quality copy. Replaced and deleted files cannot be restored with **Undo last batch**.
+   **Only files that need attention** hides the rows that are fine; **Keep both for all N conflicts** and **Skip all conflicts** settle every conflict at once.
 4. Click **Rename selected** (or **Rename & move selected**). A progress panel with **Cancel** appears while the server works. If you change a destination after previewing, you must preview again. **Undo last batch** moves files back from both libraries.
+
+### Reviewing imports
+
+Imports that left files for review are listed under **Needs review** on the Rename view and marked in Activity. **Resolve** (or a notification) previews just those files with the saved settings and jumps to the first conflict or warning: no scan, no extra Preview. Rename some, and the rest are previewed again; once none are left, or after **Mark as reviewed**, the import leaves the inbox. **Dismiss** removes it without changes. Files already moved elsewhere are dropped from the review. Which imports were reviewed is remembered per browser.
 
 ### Choosing folders
 
@@ -277,7 +290,7 @@ Defaults are `{n} - {s00e00} - {t}` for episodes and `{n} ({y})` for movies. Uns
 | `lib/parse.ts`, `lib/format.ts`, `lib/metadata.ts` | File-name parsing, naming patterns, TMDB/TVmaze lookups |
 | `lib/mover.ts`, `lib/audio.ts` | Safe moves across disks, and the Dolby Digital Plus audio fix |
 | `web/` | Web UI (React 19, Vite): `index.html` and `login.html`; `public/` holds icons, the manifest and the service worker, copied as they are |
-| `web/src/` | `App.tsx` lays out the page; `hooks/` hold the logic (settings form, rename workflow, activity polling, notifications) and `components/` the panels, file table and folder picker |
+| `web/src/` | `App.tsx` switches between the views (`route.ts`) and wires the review flow (`review.ts`); `hooks/` hold the logic (settings form, rename workflow, activity polling, notifications) and `components/` the panels, file table and folder picker |
 | `vite.config.ts` | Builds `web/` into `dist/web` |
 
 The server serves only the files in `dist/web`. The login page, the files it needs (read from Vite's manifest) and the top-level files from `web/public` load without logging in; everything else requires it.

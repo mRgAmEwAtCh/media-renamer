@@ -57,15 +57,19 @@ test('push payloads decrypt the way a browser decrypts them', () => {
 
 test('only jobs that need the user produce a notification', () => {
   assert.equal(actionNeeded({ kind: 'import', state: 'finished', label: 'X', result: { imported: 2, review: 0, failed: 0 } }), null);
-  assert.deepEqual(actionNeeded({ kind: 'import', state: 'finished', label: 'Dune', result: { imported: 0, review: 2, failed: 1 } }), {
+  assert.deepEqual(actionNeeded({ id: 'j 1', kind: 'import', state: 'finished', label: 'Dune', result: { imported: 0, review: 2, failed: 1 } }), {
     title: 'Action needed: Dune',
     body: '2 files need review · 1 file failed',
+    url: '/#/review/j%201',
   });
   assert.deepEqual(actionNeeded({ kind: 'apply', state: 'failed', label: 'Rename 3 file(s)', error: 'disk full' }), {
     title: 'Failed: Rename 3 file(s)',
     body: 'disk full',
+    url: '/#/activity',
   });
-  assert.match(actionNeeded({ kind: 'apply', state: 'finished', label: 'R', result: { renamed: 1, failed: [{}] } }).body, /1 file failed/);
+  const failed = actionNeeded({ kind: 'apply', state: 'finished', label: 'R', result: { renamed: 1, failed: [{}] } });
+  assert.match(failed.body, /1 file failed/);
+  assert.equal(failed.url, '/#/activity');
   assert.equal(actionNeeded({ kind: 'apply', state: 'cancelled', label: 'R', result: { cancelled: true, renamed: 0, failed: [] } }), null);
 });
 

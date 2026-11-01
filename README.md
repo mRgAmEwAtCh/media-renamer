@@ -180,7 +180,7 @@ The page has three views, linked in the header and in the address bar (`#/rename
 - Cards with no steps, files, notes or live progress have no chevron or expand/collapse interaction.
 - **Settings**: naming patterns, destinations, language, filters and automatic import.
 
-Language uses a native dropdown (including the phone's system picker). Choose **Custom language…** to enter a locale code not in the list; existing custom codes are preserved.
+Language and Region use native dropdowns (including the phone's system picker). Choose **Custom language…** or **Custom region…** to enter a code not in the list; existing custom codes are preserved. Region also offers **No region preference**.
 
 Settings changed but not saved are marked with a yellow dot on the tab. Leaving Settings, or previewing with changed naming or destination settings, asks to **Save**, **Discard changes** or **Keep editing**, so previews never silently differ from what imports use.
 

@@ -263,9 +263,15 @@ footer.credits a { color: inherit; }
 fieldset.automation { margin-bottom: 0.75rem; }
 fieldset.automation .checkbox { padding-bottom: 0; color: var(--text); }
 select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.5rem; }
-.language-field { min-width: 0; }
-.language-field select { width: 100%; }
-.custom-language { margin-top: 0.3rem; }
+.locale-field { min-width: 0; }
+.select-control { position: relative; }
+.select-control select { appearance: none; width: 100%; padding-right: 2.5rem; }
+.select-control::after { content: ''; position: absolute; right: 1rem; top: 50%; width: 0.45rem; height: 0.45rem; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-70%) rotate(45deg); pointer-events: none; }
+.custom-locale { margin-top: 0.3rem; }
+@media (forced-colors: active) {
+  .select-control select { appearance: auto; }
+  .select-control::after { display: none; }
+}
 
 /* minmax(0, …) and min-width: 0 let cards shrink to the screen instead of growing to fit long release names. */
 .activity { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }

@@ -146,6 +146,8 @@ Imports run one at a time, after any rename already running. A second call for a
 
 ### Notifications
 
+Finished jobs with no failures or files waiting for review can be removed individually: swipe sideways on a phone or click **✕**. The history **Undo** action restores a removed entry for a few seconds; removing history does not affect file undo.
+
 Click **🔕 Notify me** in the Activity view and allow notifications to get a push notification on that device when an import has files that need review or a job fails, even when the page is closed. Tapping a *needs review* notification opens that import's files ready to resolve; a failure opens the Activity view. Click it again to stop. Each browser or phone subscribes separately.
 
 - Browsers allow this only over HTTPS (for example behind a reverse proxy) or on `localhost`; on plain `http://<nas>:4173` the button is not shown.

@@ -33,8 +33,9 @@ export function SourcePanel(props: SourcePanelProps) {
               autoComplete="off"
               spellCheck={false}
               value={root}
+              disabled={busy}
               onChange={(event) => props.onRootChange(event.target.value)}
-              onKeyDown={(event) => event.key === 'Enter' && props.onScan()}
+              onKeyDown={(event) => event.key === 'Enter' && !busy && props.onScan()}
             />
             <button ref={props.browseButton} type="button" disabled={busy} onClick={props.onBrowse}>
               Browse…
@@ -42,22 +43,23 @@ export function SourcePanel(props: SourcePanelProps) {
           </div>
         </div>
         <label className="checkbox">
-          <input type="checkbox" checked={recursive} onChange={(event) => props.onRecursiveChange(event.target.checked)} /> Include subfolders
+          <input type="checkbox" disabled={busy} checked={recursive} onChange={(event) => props.onRecursiveChange(event.target.checked)} /> Include subfolders
         </label>
         <label className="checkbox">
-          <input type="checkbox" checked={form.videoOnly} onChange={(event) => props.onFiltersChange({ videoOnly: event.target.checked })} /> Video
+          <input type="checkbox" disabled={busy} checked={form.videoOnly} onChange={(event) => props.onFiltersChange({ videoOnly: event.target.checked })} /> Video
           files only
         </label>
         <label className="checkbox">
           <input
             type="checkbox"
+            disabled={busy}
             checked={form.excludeSamples}
             onChange={(event) => props.onFiltersChange({ excludeSamples: event.target.checked })}
           />{' '}
           Skip sample files
         </label>
         <button type="button" disabled={busy} onClick={props.onScan}>
-          Scan
+          Scan & preview
         </button>
       </div>
       {props.children}

@@ -13,7 +13,7 @@ import { saveLocal } from './local.ts';
 import { selectedItems } from './items.ts';
 import { jobsToReview, readReviewed, saveReviewed } from './review.ts';
 import { useRoute, type View } from './route.ts';
-import { formFilters, requestedTargets, type SettingsForm } from './settings-form.ts';
+import { requestedTargets, type SettingsForm } from './settings-form.ts';
 import { isActive, useActivity } from './hooks/useActivity.ts';
 import { useRenamer } from './hooks/useRenamer.ts';
 import { useSettings } from './hooks/useSettings.ts';
@@ -160,6 +160,7 @@ export function App() {
   const previewSettings = () => confirmSettings('The preview would use settings that are not saved. Save them first?', { previewOnly: true });
 
   async function startReview(job: JobSnapshot) {
+    if (renamer.busy || !confirmReplacingRows()) return;
     const form = await previewSettings();
     if (!form) return;
     if (route.view !== 'rename') navigate('rename');
@@ -168,8 +169,19 @@ export function App() {
   }
 
   async function preview() {
+    if (renamer.busy || !confirmReplacingRows()) return;
     const form = await previewSettings();
     if (form) await renamer.preview(form);
+  }
+
+  function confirmReplacingRows() {
+    return !renamer.hasPendingEdits() || confirm('Replace your edited names, selections and conflict decisions with a new preview?');
+  }
+
+  async function scanAndPreview(folder = renamer.root) {
+    if (renamer.busy || !settings.loaded || !confirmReplacingRows()) return;
+    const form = await previewSettings();
+    if (form) await renamer.scanFolder({ folder, settings: form });
   }
 
   // A link to `#/review/<job>` (from a notification) opens that job's files once the settings are loaded.
@@ -195,7 +207,7 @@ export function App() {
     const chosen = await pick(renamer.root.trim(), { title: 'Choose the folder to rename' });
     if (!chosen) return browseButtons.root.current?.focus();
     renamer.setRoot(chosen);
-    await renamer.scanFolder({ folder: chosen });
+    await scanAndPreview(chosen);
   }
 
   async function browseTarget(kind: 'tv' | 'movie') {
@@ -249,10 +261,9 @@ export function App() {
               onRecursiveChange={renamer.setRecursive}
               onFiltersChange={(patch) => {
                 settings.update(patch);
-                if (scan.root && !busy && !scan.review) renamer.scanFolder({ filters: { ...formFilters(settings.form), ...patch } });
               }}
               onBrowse={browseRoot}
-              onScan={() => renamer.scanFolder()}
+              onScan={() => scanAndPreview()}
             >
               <SettingsSummary form={settings.form} dirty={dirty} onEdit={() => navigate('settings')} />
             </SourcePanel>
@@ -270,7 +281,7 @@ export function App() {
                 <>
                   <div className="row">
                     <button type="button" disabled={busy || !items.length} onClick={preview}>
-                      {scan.previewed ? 'Preview again' : 'Preview names'}
+                      {scan.previewed ? 'Preview again' : 'Retry preview'}
                     </button>
                     <button type="button" className="primary" disabled={busy || !selected.length || renamer.stale} onClick={renamer.apply}>
                       {`${selected.some((item) => item.target && item.resolution !== 'remove') ? 'Rename & move' : 'Rename'} ${selected.length ? `${selected.length} ` : ''}selected`}

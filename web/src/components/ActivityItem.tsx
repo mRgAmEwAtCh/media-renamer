@@ -139,6 +139,12 @@ interface ActivityItemProps {
 export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, onReview }: ActivityItemProps) {
   const active = isActive(job);
   const [expanded, setExpanded] = useState(active);
+  const hasDetails = Boolean(
+    (job.note && job.state !== 'queued') ||
+    (job.state === 'running' && job.progress?.current) ||
+    job.steps?.length ||
+    job.files?.length,
+  );
   const source = job.source === 'hook' ? 'via hook' : (job.source ?? '');
   const detailsId = `job-${job.id}`;
   const dismissable = canDismiss(job);
@@ -148,8 +154,9 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
       {dismissable && <div className="activity-remove-hint" aria-hidden="true"><span>Remove</span><span>Remove</span></div>}
       <div style={swipe.style} {...swipe.handlers}>
     <div
-      className={`activity-item state-${job.state}${toReview ? ' to-review' : ''}`}
+      className={`activity-item state-${job.state}${toReview ? ' to-review' : ''}${hasDetails ? ' expandable' : ''}`}
       onClick={(event) => {
+        if (!hasDetails) return;
         if (event.target instanceof Element && event.target.closest('button, a, input, textarea, select')) return;
         if (swipe.dragging || window.getSelection()?.toString()) return;
         setExpanded((current) => !current);
@@ -162,7 +169,7 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
         <span className={`badge badge-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
         {toReview > 0 && <span className="badge badge-review">{`${toReview} to review`}</span>}
         <span className="hint">{`${source} · ${formatDay(job.queuedAt)} ${formatTime(job.startedAt ?? job.queuedAt)}`}</span>
-        <span className="activity-actions">
+        {(hasDetails || dismissable || toReview > 0 || (active && job.state !== 'cancelling')) && <span className="activity-actions">
           {dismissable && <button type="button" className="icon dismiss" aria-label={`Remove “${title(job)}” from the history`} title="Remove from the history" onClick={onRemove}>✕</button>}
           {toReview > 0 && (
             <button type="button" className="primary" onClick={onReview}>
@@ -174,7 +181,7 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
               {job.state === 'queued' ? 'Remove' : 'Cancel'}
             </button>
           )}
-          <button
+          {hasDetails && <button
             type="button"
             className="activity-toggle"
             aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title(job)}`}
@@ -185,8 +192,8 @@ export function ActivityItem({ job, toReview, onCancel, onRemove, onOpenFolder, 
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
             </svg>
-          </button>
-        </span>
+          </button>}
+        </span>}
       </div>
       <p className="activity-summary">{summary(job)}</p>
       <div id={detailsId} hidden={!expanded}>

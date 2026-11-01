@@ -84,26 +84,41 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   font-weight: 600;
 }
 #app > header nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Tab badges: a yellow counter for things to act on, a dot for state (unsaved, running). */
 .tab-badge {
+  --badge-warn: #fbbf24;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.35rem;
-  margin-left: -0.1rem;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.3rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   line-height: 1;
-  color: #111;
-  background: var(--warn);
+  font-variant-numeric: tabular-nums;
+  color: #1c1917;
+  background: var(--badge-warn);
 }
-.tab-badge.accent { background: var(--accent); color: #fff; }
-.tab-badge.dot { min-width: 0; width: 0.5rem; height: 0.5rem; padding: 0; }
-@media (prefers-color-scheme: dark) { .tab-badge.accent { color: #111; } }
-@media (prefers-color-scheme: light) { .tab-badge { color: #fff; } }
-.tab-badge + .tab-badge { margin-left: -0.2rem; }
+.tab-badge.accent { background: var(--accent); }
+.tab-badge.dot {
+  position: relative;
+  top: -0.45em;
+  min-width: 0;
+  width: 0.45rem;
+  height: 0.45rem;
+  padding: 0;
+  margin-left: -0.25rem;
+}
+.tab-badge.dot + .tab-badge:not(.dot) { margin-left: -0.1rem; }
+.tab-badge.dot.accent { animation: tab-pulse 1.6s ease-in-out infinite; }
+@keyframes tab-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  50% { box-shadow: 0 0 0 0.25rem transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .tab-badge.dot.accent { animation: none; } }
+@media (prefers-color-scheme: light) { .tab-badge { --badge-warn: #f59e0b; } }
 .hint { color: var(--muted); margin: 0 0 1rem; }
 
 .panel {

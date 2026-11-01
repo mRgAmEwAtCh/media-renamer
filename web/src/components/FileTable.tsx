@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { editName, resolveConflict } from '../conflicts.ts';
+import type { Review } from '../hooks/useRenamer.ts';
 import { isSelectable, type Item, type Resolution } from '../items.ts';
+import { needsAttention, openConflicts } from '../review.ts';
 import { Breakable } from './Breakable.tsx';
 import { ConflictActions } from './ConflictActions.tsx';
 
@@ -92,12 +94,37 @@ function Row({ item, items, onSelect, onEdit, onResolve, onKeepBoth }: RowProps)
 interface FileTableProps {
   items: Item[] | null;
   version: number;
+  busy: boolean;
+  /** Set while the rows are an import's files to review. */
+  review: Review | null;
   onChange: (items: Item[]) => void;
   /** Give the row a free name next to the file in the way. */
   onKeepBoth: (index: number) => Promise<void>;
+  onKeepBothAll: () => void;
+  onCloseReview: (done: boolean) => void;
+  /** The sticky bar under the table: Preview / Rename / Undo and the status line. */
+  actions: ReactNode;
 }
 
-export function FileTable({ items, version, onChange, onKeepBoth }: FileTableProps) {
+function ReviewBanner({ review, busy, onClose }: { review: Review; busy: boolean; onClose: (done: boolean) => void }) {
+  return (
+    <div className="review-banner" role="note">
+      <span>
+        Reviewing <strong>{review.files.length}</strong> {review.files.length === 1 ? 'file' : 'files'} from <strong><Breakable text={review.label} /></strong>
+      </span>
+      <span className="row">
+        <button type="button" disabled={busy} onClick={() => onClose(true)} title="Hide this import from “Needs review”">
+          Mark as reviewed
+        </button>
+        <button type="button" disabled={busy} onClick={() => onClose(false)}>
+          Close
+        </button>
+      </span>
+    </div>
+  );
+}
+
+export function FileTable({ items, version, busy, review, onChange, onKeepBoth, onKeepBothAll, onCloseReview, actions }: FileTableProps) {
   useEffect(() => {
     const fitAll = () => document.querySelectorAll<HTMLTextAreaElement>('#rows textarea').forEach(fitHeight);
     window.addEventListener('resize', fitAll);
@@ -108,12 +135,47 @@ export function FileTable({ items, version, onChange, onKeepBoth }: FileTablePro
   const renamable = list.filter(isSelectable);
   const select = (index: number, selected: boolean) => onChange(list.map((item, i) => (i === index ? { ...item, selected } : item)));
   const selectAll = (selected: boolean) => onChange(list.map((item) => (isSelectable(item) ? { ...item, selected } : item)));
+  const conflicts = openConflicts(list);
+  const attention = list.filter(needsAttention).length;
+
+  // The filter keeps the rows it showed when turned on (or at the last preview), so a
+  // row does not vanish the moment its conflict is settled or its name is edited.
+  const [onlyAttention, setOnlyAttention] = useState(false);
+  const shownRels = useMemo(
+    () => (onlyAttention ? new Set(list.filter(needsAttention).map((item) => item.rel)) : null),
+    // Recomputed per preview and toggle only, on purpose.
+    [onlyAttention, version],
+  );
+  const skipAll = () => {
+    let next = list;
+    for (const item of conflicts) next = resolveConflict(next, next.findIndex((row) => row.rel === item.rel), 'skip');
+    onChange(next);
+  };
 
   return (
-    <section className="panel" aria-labelledby="files-heading">
+    <section className="panel files" aria-labelledby="files-heading">
       <h2 id="files-heading">
-        3. Files <span>{list.length ? `(${list.length})` : ''}</span>
+        Files <span>{list.length ? `(${list.length})` : ''}</span>
       </h2>
+      {review && <ReviewBanner review={review} busy={busy} onClose={onCloseReview} />}
+      {(attention > 0 || onlyAttention) && (
+        <div className="row table-tools">
+          <label className="checkbox">
+            <input type="checkbox" checked={onlyAttention} onChange={(event) => setOnlyAttention(event.target.checked)} /> Only files that need attention (
+            {attention})
+          </label>
+          {conflicts.length > 1 && (
+            <>
+              <button type="button" disabled={busy} onClick={onKeepBothAll}>
+                {`Keep both for all ${conflicts.length} conflicts`}
+              </button>
+              <button type="button" disabled={busy} onClick={skipAll}>
+                Skip all conflicts
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <table>
         <thead>
           <tr>
@@ -140,7 +202,8 @@ export function FileTable({ items, version, onChange, onKeepBoth }: FileTablePro
               </td>
             </tr>
           )}
-          {list.map((item, index) => (
+          {list.map((item, index) =>
+            shownRels && !shownRels.has(item.rel) ? null : (
             <Row
               key={`${version}:${item.rel}`}
               item={item}
@@ -150,9 +213,18 @@ export function FileTable({ items, version, onChange, onKeepBoth }: FileTablePro
               onResolve={(resolution) => onChange(resolveConflict(list, index, resolution))}
               onKeepBoth={() => onKeepBoth(index)}
             />
-          ))}
+            ),
+          )}
+          {shownRels && list.length > 0 && shownRels.size === 0 && (
+            <tr>
+              <td colSpan={5} className="empty">
+                Nothing needs attention.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
+      <div className="action-bar">{actions}</div>
     </section>
   );
 }

@@ -14,9 +14,13 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     (async () => {
+      const url = event.notification.data?.url ?? '/';
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       const open = windows.find((client) => client.url.startsWith(self.location.origin));
-      return open ? open.focus() : self.clients.openWindow(event.notification.data?.url ?? '/');
+      if (!open) return self.clients.openWindow(url);
+      // The open page switches to the linked view (e.g. the files of an import to review).
+      open.postMessage({ type: 'open', url });
+      return open.focus();
     })(),
   );
 });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SettingsResponse } from '../../../lib/api-types.ts';
 import { api, errorMessage } from '../api.ts';
 import { readLocal } from '../local.ts';
-import { EMPTY_FORM, formFromSettings, settingsFromForm, type SettingsForm } from '../settings-form.ts';
+import { changedFields, EMPTY_FORM, formFromSettings, settingsFromForm, type SettingsForm } from '../settings-form.ts';
 import type { SetStatus } from './useStatus.ts';
 
 const BITRATES = ['640k', '768k', '1024k', '1536k'];
@@ -51,13 +51,15 @@ function legacyChanges(): Partial<SettingsForm> | null {
  */
 export function useSettings(setStatus: SetStatus, onLoaded: () => void) {
   const [form, setForm] = useState<SettingsForm>(EMPTY_FORM);
-  const [snapshot, setSnapshot] = useState<string | null>(null);
+  /** The settings as last loaded or saved; null until the first load. */
+  const [savedForm, setSavedForm] = useState<SettingsForm | null>(null);
   const [saved, setSaved] = useState({ exists: false, at: null as string | null });
   const [server, setServer] = useState<ServerInfo>({ tmdbStatus: '', hookStatus: '' });
   const [extraBitrates, setExtraBitrates] = useState<string[]>([]);
   const loaded = useRef(false);
 
-  const dirty = snapshot !== null && JSON.stringify(settingsFromForm(form)) !== snapshot;
+  const changes = useMemo(() => (savedForm ? changedFields(form, savedForm) : []), [form, savedForm]);
+  const dirty = changes.length > 0;
   const update = useCallback((patch: Partial<SettingsForm>) => setForm((current) => ({ ...current, ...patch })), []);
 
   /** Show a settings response from the server and remember it as the saved state. */
@@ -66,7 +68,7 @@ export function useSettings(setStatus: SetStatus, onLoaded: () => void) {
     const bitrate = next.audioBitrate;
     if (!BITRATES.includes(bitrate)) setExtraBitrates((current) => (current.includes(bitrate) ? current : [...current, bitrate]));
     setForm(next);
-    setSnapshot(JSON.stringify(settingsFromForm(next)));
+    setSavedForm(next);
     setSaved({ exists: response.saved, at: response.savedAt });
     return next;
   }, []);
@@ -92,14 +94,25 @@ export function useSettings(setStatus: SetStatus, onLoaded: () => void) {
     })();
   }, [remember, setStatus, onLoaded]);
 
-  const save = useCallback(async () => {
+  /** Save the form as the default; resolves to the saved form, or null when saving failed. */
+  const save = useCallback(async (): Promise<SettingsForm | null> => {
     try {
-      remember(await api('/api/settings/save', { settings: settingsFromForm(form) }));
-      setStatus('Saved as default. The web UI on every device and the CLI now use these settings.', 'success');
+      const next = remember(await api('/api/settings/save', { settings: settingsFromForm(form) }));
+      setStatus('Saved as default. The web UI on every device, imports and the CLI now use these settings.', 'success');
+      return next;
     } catch (error) {
       setStatus(`Not saved: ${errorMessage(error)}`, 'error');
+      return null;
     }
   }, [form, remember, setStatus]);
+
+  /** Drop unsaved changes; resolves to the saved form now shown. */
+  const revert = useCallback((): SettingsForm => {
+    const next = savedForm ?? form;
+    setForm(next);
+    setStatus('Unsaved changes discarded.');
+    return next;
+  }, [form, savedForm, setStatus]);
 
   const reset = useCallback(async () => {
     if (!confirm('Forget the saved defaults and use the server’s configuration again?')) return;
@@ -113,7 +126,7 @@ export function useSettings(setStatus: SetStatus, onLoaded: () => void) {
 
   const bitrates = useMemo(() => [...BITRATES, ...extraBitrates], [extraBitrates]);
 
-  return { form, update, dirty, saved, server, bitrates, save, reset };
+  return { form, loaded: savedForm !== null, update, dirty, changes, saved, server, bitrates, save, revert, reset };
 }
 
 export type SettingsState = ReturnType<typeof useSettings>;

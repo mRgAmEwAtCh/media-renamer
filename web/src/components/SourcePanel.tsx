@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { SettingsForm } from '../settings-form.ts';
 
 interface SourcePanelProps {
@@ -12,6 +12,8 @@ interface SourcePanelProps {
   onFiltersChange: (patch: Pick<Partial<SettingsForm>, 'videoOnly' | 'excludeSamples'>) => void;
   onBrowse: () => void;
   onScan: () => void;
+  /** Shown under the folder row, e.g. where renamed files go. */
+  children?: ReactNode;
 }
 
 /** Step 1: the folder to rename and which files to include. */
@@ -19,7 +21,7 @@ export function SourcePanel(props: SourcePanelProps) {
   const { root, recursive, form, busy } = props;
   return (
     <section className="panel" aria-labelledby="source-heading">
-      <h2 id="source-heading">1. Choose a folder</h2>
+      <h2 id="source-heading">Folder</h2>
       <div className="row">
         <div className="field grow">
           <label htmlFor="root">Folder path</label>
@@ -58,6 +60,7 @@ export function SourcePanel(props: SourcePanelProps) {
           Scan
         </button>
       </div>
+      {props.children}
     </section>
   );
 }

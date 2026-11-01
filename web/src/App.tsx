@@ -30,7 +30,14 @@ const TABS: [View, string][] = [
   ['settings', 'Settings'],
 ];
 
-function Header({ view, badges, onNavigate }: { view: View; badges: Partial<Record<View, string>>; onNavigate: (view: View) => void }) {
+/** A counter (or a dot when `count` is absent) next to a tab; `label` is read out and shown on hover. */
+interface Badge {
+  count?: number;
+  label: string;
+  tone: 'warn' | 'accent';
+}
+
+function Header({ view, badges, onNavigate }: { view: View; badges: Partial<Record<View, Badge[]>>; onNavigate: (view: View) => void }) {
   return (
     <header>
       <h1>
@@ -48,7 +55,12 @@ function Header({ view, badges, onNavigate }: { view: View; badges: Partial<Reco
             }}
           >
             {label}
-            {badges[value] && <span className="tab-badge">{badges[value]}</span>}
+            {badges[value]?.map((badge) => (
+              <span key={badge.label} className={`tab-badge ${badge.tone}${badge.count === undefined ? ' dot' : ''}`} title={badge.label}>
+                <span aria-hidden="true">{badge.count}</span>
+                <span className="visually-hidden">{badge.label}</span>
+              </span>
+            ))}
           </a>
         ))}
       </nav>
@@ -198,9 +210,12 @@ export function App() {
   const selected = selectedItems(items);
   const toReview = jobsToReview(activity.jobs, reviewed);
   const running = activity.jobs.filter(isActive).length;
-  const badges: Partial<Record<View, string>> = {
-    ...((toReview.length || running) && { activity: [running && `${running} running`, toReview.length && `${toReview.length} to review`].filter(Boolean).join(' · ') }),
-    ...(dirty && { settings: 'unsaved' }),
+  const activityBadges: Badge[] = [];
+  if (running) activityBadges.push({ count: running, label: `${running} running`, tone: 'accent' });
+  if (toReview.length) activityBadges.push({ count: toReview.length, label: `${toReview.length} to review`, tone: 'warn' });
+  const badges: Partial<Record<View, Badge[]>> = {
+    activity: activityBadges,
+    ...(dirty && { settings: [{ label: 'Unsaved changes', tone: 'warn' }] }),
   };
   const statusLine = (
     <p id="status" role="status" aria-live="polite" className={status.kind}>

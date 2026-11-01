@@ -87,16 +87,23 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .tab-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
   height: 1.25rem;
-  padding: 0 0.45rem;
-  border-radius: 4px;
+  padding: 0 0.35rem;
+  margin-left: -0.1rem;
+  border-radius: 999px;
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
-  white-space: nowrap;
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: #111;
+  background: var(--warn);
 }
+.tab-badge.accent { background: var(--accent); color: #fff; }
+.tab-badge.dot { min-width: 0; width: 0.5rem; height: 0.5rem; padding: 0; }
+@media (prefers-color-scheme: dark) { .tab-badge.accent { color: #111; } }
+@media (prefers-color-scheme: light) { .tab-badge { color: #fff; } }
+.tab-badge + .tab-badge { margin-left: -0.2rem; }
 .hint { color: var(--muted); margin: 0 0 1rem; }
 
 .panel {
@@ -392,3 +399,5 @@ dialog[aria-busy='true'] .folders { opacity: 0.5; }
   tbody td.empty { display: block; }
   tr.status-skipped td.path, tr.status-unchanged td.path { color: inherit; }
 }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

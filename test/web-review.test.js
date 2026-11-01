@@ -5,6 +5,15 @@ import { resolveConflict } from '../web/src/conflicts.ts';
 import { allDecided, jobsToReview, needsAttention, openConflicts, reviewFiles } from '../web/src/review.ts';
 import { parseRoute } from '../web/src/route.ts';
 import { changedFields, EMPTY_FORM, PREVIEW_FIELDS } from '../web/src/settings-form.ts';
+import { describeScan } from '../web/src/hooks/useRenamer.ts';
+
+test('scan and preview summary preserves empty results, excluded counts and truncation', () => {
+  assert.equal(describeScan({ files: [], excluded: { samples: 0, nonVideo: 0 } }), 'Found 0 media file(s).');
+  assert.equal(
+    describeScan({ files: [{}, {}], truncated: true, excluded: { samples: 2, nonVideo: 3 } }),
+    'Found 2 media file(s) (list truncated). Skipped 2 sample and 3 non-video file(s).',
+  );
+});
 
 const job = (id, state, outcomes) => ({ id, state, files: outcomes.map((outcome, i) => ({ rel: `dl/${id}/${i}.mkv`, outcome })) });
 

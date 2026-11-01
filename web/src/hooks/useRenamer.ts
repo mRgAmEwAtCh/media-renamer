@@ -42,11 +42,12 @@ interface AfterReview {
 
 const isMissing = (item: PreviewItem) => item.status === 'error' && item.message === 'File not found';
 
-function describeExcluded(excluded: ScanResponse['excluded']): string {
+export function describeScan(data: ScanResponse): string {
+  const { excluded } = data;
   const parts = [];
   if (excluded.samples) parts.push(`${excluded.samples} sample`);
   if (excluded.nonVideo) parts.push(`${excluded.nonVideo} non-video`);
-  return parts.length ? ` Skipped ${parts.join(' and ')} file(s).` : '';
+  return `Found ${data.files.length} media file(s)${data.truncated ? ' (list truncated)' : ''}.${parts.length ? ` Skipped ${parts.join(' and ')} file(s).` : ''}`;
 }
 
 /**
@@ -75,12 +76,20 @@ export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOp
     live.current = { root, recursive, scan, busy, form, onJobDone, onReviewed };
   });
   const afterReview = useRef<AfterReview | null>(null);
+  const originalItems = useRef<Item[] | null>(null);
+  const scanSummary = useRef('');
+  const hasPendingEdits = () => JSON.stringify(live.current.scan.items) !== JSON.stringify(originalItems.current);
 
-  const showScan = (data: ScanResponse) =>
-    setScan((current) => ({ root: data.root, items: itemsFromScan(data.files), previewed: false, previewTargets: null, version: current.version + 1, review: null }));
+  const showScan = (data: ScanResponse) => {
+    const items = itemsFromScan(data.files);
+    originalItems.current = items;
+    scanSummary.current = describeScan(data);
+    setScan((current) => ({ root: data.root, items, previewed: false, previewTargets: null, version: current.version + 1, review: null }));
+  };
 
   /** Run a task with the buttons disabled; its error goes to the status line. */
   const run = async (message: string, task: () => Promise<void>) => {
+    live.current.busy = true;
     setBusy(true);
     setStatus(message);
     try {
@@ -88,55 +97,74 @@ export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOp
     } catch (error) {
       setStatus(errorMessage(error), 'error');
     } finally {
+      live.current.busy = false;
       setBusy(false);
     }
   };
 
-  async function scanFolder({ folder = live.current.root, filters = formFilters(live.current.form) } = {}) {
+  async function scanFolder({ folder = live.current.root, settings = live.current.form } = {}) {
+    if (live.current.busy) return;
     saveLocal(folder, live.current.recursive);
     await run('Scanning…', async () => {
-      const data = await api('/api/scan', { root: folder.trim(), recursive: live.current.recursive, ...filters });
+      const data = await api('/api/scan', { root: folder.trim(), recursive: live.current.recursive, ...formFilters(settings) });
       showScan(data);
-      setStatus(`Found ${data.files.length} media file(s)${data.truncated ? ' (list truncated)' : ''}.${describeExcluded(data.excluded)} Click “Preview names”.`);
+      const summary = describeScan(data);
+      if (!data.files.length) {
+        setStatus(summary);
+        return;
+      }
+      setStatus(`${summary} Looking up metadata…`);
+      try {
+        await loadPreview({ folder: data.root, files: data.files.map((file) => file.rel), settings, review: null, prefix: `${summary} ` });
+      } catch (error) {
+        setStatus(`${summary} Preview failed: ${errorMessage(error)} Use “Retry preview”.`, 'error');
+      }
     });
   }
 
-  const rescan = async () => {
+  const rescan = async (preserveEdits = false) => {
     const { scan: current, recursive: subfolders, form: latestForm } = live.current;
-    showScan(await api('/api/scan', { root: current.root, recursive: subfolders, ...formFilters(latestForm) }));
+    const data = await api('/api/scan', { root: current.root, recursive: subfolders, ...formFilters(latestForm) });
+    if (preserveEdits && (live.current.busy || live.current.scan.version !== current.version || hasPendingEdits())) return;
+    showScan(data);
   };
 
   /** Look up names for `files` in `folder`; with `review`, the rows are an import's files to review. */
-  async function runPreview({ folder, files, settings, review, prefix = '' }: { folder: string; files: string[]; settings: SettingsForm; review: Review | null; prefix?: string }) {
+  async function loadPreview({ folder, files, settings, review, prefix = '' }: { folder: string; files: string[]; settings: SettingsForm; review: Review | null; prefix?: string }) {
     const targets = requestedTargets(settings);
     if (settings.move && !targets.episode && !targets.movie) {
-      setStatus('Choose a destination for TV shows and/or movies in Settings, or untick “Move renamed files”.', 'error');
+      setStatus(`${prefix}Choose a destination for TV shows and/or movies in Settings, or untick “Move renamed files”, then retry preview.`, 'error');
       return false;
     }
+    const data = await api('/api/preview', { root: folder, targets, files, ...previewOptions(settings) });
+    // Files of an import that were renamed or deleted since (maybe on another device) are done.
+    const found = review ? data.items.filter((item) => !isMissing(item)) : data.items;
+    if (review && !found.length) {
+      live.current.onReviewed(review.jobId);
+      originalItems.current = null;
+      setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
+      setStatus(`${prefix}Nothing left to review from “${review.label}”: its files were already moved.`, 'success');
+      return true;
+    }
+    if (review) review = { ...review, files: found.map((item) => item.rel) };
+    const items = itemsFromPreview(found);
+    originalItems.current = items;
+    setScan((current) => ({ root: data.root, items, previewed: true, previewTargets: targets, review, version: current.version + 1 }));
+    const ready = items.filter((item) => item.selected);
+    const moving = (['episode', 'movie'] as const)
+      .map((kind) => [kind, ready.filter((item) => item.kind === kind && item.target).length] as const)
+      .filter(([, count]) => count)
+      .map(([kind, count]) => `${count} to ${data.targets[kind]}`);
+    const conflicts = openConflicts(items).length;
+    const decide = conflicts ? ` ${conflicts} conflict(s): choose Keep both, Overwrite or Skip.` : '';
+    setStatus(`${prefix}${ready.length} file(s) ready${moving.length ? ` (moving ${moving.join(', ')})` : ''}. Review warnings before selecting them.${decide}`);
+    return true;
+  }
+
+  async function runPreview(options: Parameters<typeof loadPreview>[0]) {
     let ok = false;
     await run('Looking up metadata…', async () => {
-      const data = await api('/api/preview', { root: folder, targets, files, ...previewOptions(settings) });
-      // Files of an import that were renamed or deleted since (maybe on another device) are done.
-      const found = review ? data.items.filter((item) => !isMissing(item)) : data.items;
-      if (review && !found.length) {
-        live.current.onReviewed(review.jobId);
-        setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
-        setStatus(`${prefix}Nothing left to review from “${review.label}”: its files were already moved.`, 'success');
-        ok = true;
-        return;
-      }
-      if (review) review = { ...review, files: found.map((item) => item.rel) };
-      const items = itemsFromPreview(found);
-      setScan((current) => ({ root: data.root, items, previewed: true, previewTargets: targets, review, version: current.version + 1 }));
-      const ready = items.filter((item) => item.selected);
-      const moving = (['episode', 'movie'] as const)
-        .map((kind) => [kind, ready.filter((item) => item.kind === kind && item.target).length] as const)
-        .filter(([, count]) => count)
-        .map(([kind, count]) => `${count} to ${data.targets[kind]}`);
-      const conflicts = openConflicts(items).length;
-      const decide = conflicts ? ` ${conflicts} conflict(s): choose Keep both, Overwrite or Skip.` : '';
-      setStatus(`${prefix}${ready.length} file(s) ready${moving.length ? ` (moving ${moving.join(', ')})` : ''}. Review warnings before selecting them.${decide}`);
-      ok = true;
+      ok = await loadPreview(options);
     });
     return ok;
   }
@@ -144,7 +172,7 @@ export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOp
   /** Preview the shown rows; `settings` replaces the form when it was just saved or reverted. */
   async function preview(settings: SettingsForm = live.current.form) {
     const { scan: current } = live.current;
-    await runPreview({ folder: current.root, files: (current.items ?? []).map((item) => item.rel), settings, review: current.review });
+    await runPreview({ folder: current.root, files: (current.items ?? []).map((item) => item.rel), settings, review: current.review, prefix: current.review ? '' : `${scanSummary.current} ` });
   }
 
   /** Show the files of an import that need review, already previewed. */
@@ -165,6 +193,7 @@ export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOp
     const { review } = live.current.scan;
     if (!review) return;
     if (done) live.current.onReviewed(review.jobId);
+    originalItems.current = null;
     setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
     setStatus(done ? `Marked “${review.label}” as reviewed.` : '');
   }
@@ -177,6 +206,7 @@ export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOp
     if (pending && review?.jobId === pending.review.jobId && finished.state === 'finished') {
       if (pending.decided || !pending.remaining.length) {
         live.current.onReviewed(review.jobId);
+        originalItems.current = null;
         setScan((current) => ({ ...current, items: null, previewed: false, previewTargets: null, review: null, version: current.version + 1 }));
         setStatus(`${report} Review of “${review.label}” done.`, 'success');
         return;
@@ -349,9 +379,12 @@ export function useRenamer({ form, setStatus, onJobDone, onReviewed }: RenamerOp
     job,
     connectionProblem,
     scanFolder,
+    hasPendingEdits,
     /** Rescan the shown folder unless a scan or job is running (e.g. after an import moved files). */
     rescanIfIdle: () => {
-      if (live.current.scan.root && !live.current.scan.review && !live.current.busy) rescan().catch(() => {});
+      if (live.current.scan.root && !live.current.scan.review && !live.current.busy && !hasPendingEdits()) {
+        rescan(true).catch((error: unknown) => setStatus(errorMessage(error), 'error'));
+      }
     },
     preview,
     reviewJob,
